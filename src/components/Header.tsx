@@ -28,7 +28,7 @@ export function Header() {
   const data = routeData[pathname] || { title: "Painel", subtitle: "Bem-vindo ao sistema." };
 
   return (
-    <header className="h-16 sm:h-20 bg-white dark:bg-slate-950 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between px-4 sm:px-8 shrink-0 shadow-sm z-10 transition-colors duration-300">
+    <header className="h-16 sm:h-20 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between px-4 sm:px-8 shrink-0 shadow-sm z-10 transition-colors duration-300">
       <div className="flex items-center gap-3 min-w-0">
         {/* Hamburger - mobile only */}
         <button

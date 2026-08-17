@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { api } from "@/lib/api";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
@@ -25,12 +24,13 @@ import {
   User,
   Funnel
 } from "@phosphor-icons/react";
+import { api } from "@/lib/api";
 
 // --- Schemas ---
 
 const demandaSchema = z.object({
-  cidadaoNome: z.string().min(2, "Nome é obrigatório"),
-  cidadaoTelefone: z.string().min(10, "Telefone inválido"),
+  cidadao_nome: z.string().min(2, "Nome é obrigatório"),
+  cidadao_telefone: z.string().min(10, "Telefone inválido"),
   bairro: z.string().min(2, "Bairro é obrigatório"),
   categoria: z.string().min(1, "Selecione a categoria"),
   descricao: z.string().min(5, "Descreva a demanda (min. 5 caracteres)"),
@@ -41,40 +41,15 @@ type DemandaForm = z.infer<typeof demandaSchema>;
 
 interface DemandaItem extends DemandaForm {
   id: string;
-  dataCriacao: string;
-  origem: "Site/Gabinete Virtual" | "Inserção Manual";
+  created_at: string;
+  origem: string;
 }
 
 const STATUS_PIPELINE: ("Nova" | "Em Análise" | "Oficiada" | "Resolvida")[] = ["Nova", "Em Análise", "Oficiada", "Resolvida"];
 
 export default function DemandasPage() {
   const [demandas, setDemandas] = useState<DemandaItem[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    const fetchDemandas = async () => {
-      try {
-        const data = await api.demandas.getAll();
-        setDemandas(data.map((d: any) => ({
-          id: d.id,
-          cidadaoNome: d.cidadao_nome || d.leads?.nome || '',
-          cidadaoTelefone: d.cidadao_telefone || d.leads?.telefone || '',
-          bairro: d.bairro || '',
-          categoria: d.categoria || '',
-          descricao: d.descricao || '',
-          status: d.status || 'Nova',
-          origem: d.origem || 'Inserção Manual',
-          dataCriacao: d.created_at
-        })));
-      } catch (err: any) {
-        toast.error('Erro ao carregar demandas: ' + err.message);
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchDemandas();
-  }, []);
-
+  const [isLoading, setIsLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [detailDemanda, setDetailDemanda] = useState<DemandaItem | null>(null);
   const [search, setSearch] = useState("");
@@ -87,80 +62,91 @@ export default function DemandasPage() {
     }
   });
 
+  const fetchDemandas = async () => {
+    try {
+      setIsLoading(true);
+      const data = await api.get('/demandas');
+      setDemandas(data || []);
+    } catch (error) {
+      toast.error("Erro ao carregar demandas.");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchDemandas();
+  }, []);
+
   const onSubmit = async (data: DemandaForm) => {
     try {
       const payload = {
-        cidadao_nome: data.cidadaoNome,
-        cidadao_telefone: data.cidadaoTelefone,
-        bairro: data.bairro,
-        categoria: data.categoria,
-        descricao: data.descricao,
-        status: data.status,
-        origem: 'Inserção Manual'
+        ...data,
+        origem: "Inserção Manual"
       };
-      const created = await api.demandas.create(payload);
-      const newItem: DemandaItem = {
-        id: created.id,
-        cidadaoNome: created.cidadao_nome,
-        cidadaoTelefone: created.cidadao_telefone,
-        bairro: created.bairro,
-        categoria: created.categoria,
-        descricao: created.descricao,
-        status: created.status || 'Nova',
-        origem: 'Inserção Manual',
-        dataCriacao: created.created_at
-      };
-      setDemandas([newItem, ...demandas]);
-      toast.success('Demanda registrada!');
+      const response = await api.post('/demandas', payload);
+      setDemandas([response, ...demandas]);
+      toast.success("Demanda registrada e vinculada ao lead com sucesso!");
       setIsModalOpen(false);
       form.reset();
-    } catch (err: any) {
-      toast.error('Erro: ' + err.message);
+    } catch (error) {
+      toast.error("Erro ao registrar demanda.");
     }
   };
 
   const deleteDemanda = async (id: string) => {
     try {
-      await api.demandas.remove(id);
+      await api.delete(`/demandas/${id}`);
       setDemandas(demandas.filter(d => d.id !== id));
-      setDetailDemanda(null);
-      toast.success('Demanda excluída.');
-    } catch (err: any) {
-      toast.error('Erro ao excluir: ' + err.message);
+      toast.success("Demanda excluída.");
+      if (detailDemanda?.id === id) {
+        setDetailDemanda(null);
+      }
+    } catch (error) {
+      toast.error("Erro ao excluir demanda.");
     }
   };
 
   const changeStatus = async (id: string, newStatus: "Nova" | "Em Análise" | "Oficiada" | "Resolvida") => {
     try {
-      await api.demandas.updateStatus(id, newStatus);
+      await api.put(`/demandas/${id}/status`, { status: newStatus });
       setDemandas(demandas.map(d => d.id === id ? { ...d, status: newStatus } : d));
       toast.success(`Status alterado para ${newStatus}`);
       if (detailDemanda?.id === id) {
         setDetailDemanda(prev => prev ? { ...prev, status: newStatus } : null);
       }
-    } catch (err: any) {
-      toast.error('Erro ao atualizar: ' + err.message);
+    } catch (error) {
+      toast.error("Erro ao alterar status.");
     }
   };
 
   const filteredDemandas = demandas.filter(d => {
     const matchSearch = 
-      d.cidadaoNome.toLowerCase().includes(search.toLowerCase()) || 
-      d.descricao.toLowerCase().includes(search.toLowerCase()) ||
-      d.bairro.toLowerCase().includes(search.toLowerCase());
+      d.cidadao_nome?.toLowerCase().includes(search.toLowerCase()) || 
+      d.descricao?.toLowerCase().includes(search.toLowerCase()) ||
+      d.bairro?.toLowerCase().includes(search.toLowerCase());
     const matchStatus = filterStatus ? d.status === filterStatus : true;
     return matchSearch && matchStatus;
   });
 
-  // KPI Calculations
+  const getMostFrequent = (arr: any[], key: string) => {
+    if (arr.length === 0) return "N/A";
+    const counts = arr.reduce((acc, curr) => {
+      const val = curr[key];
+      if (val) acc[val] = (acc[val] || 0) + 1;
+      return acc;
+    }, {} as Record<string, number>);
+    if (Object.keys(counts).length === 0) return "N/A";
+    return Object.keys(counts).reduce((a, b) => counts[a] > counts[b] ? a : b);
+  };
+
   const stats = {
     total: demandas.length,
     resolvidas: demandas.filter(d => d.status === "Resolvida").length,
     oficiadas: demandas.filter(d => d.status === "Oficiada").length,
-    topBairro: "Centro", // Mock calculated
-    topCategoria: "Infraestrutura" // Mock calculated
+    topBairro: getMostFrequent(demandas, "bairro"),
+    topCategoria: getMostFrequent(demandas, "categoria")
   };
-
   const getStatusConfig = (status: string) => {
     switch (status) {
       case "Resolvida": return { icon: CheckCircle, color: "text-green-700 bg-green-100 border-green-200" };
@@ -265,7 +251,13 @@ export default function DemandasPage() {
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
               <AnimatePresence>
-                {filteredDemandas.length === 0 ? (
+                {isLoading ? (
+                  <motion.tr initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+                    <td colSpan={4} className="py-16 text-center text-slate-500 dark:text-slate-400">
+                      <p className="text-lg font-medium text-slate-600 dark:text-slate-300">Carregando...</p>
+                    </td>
+                  </motion.tr>
+                ) : filteredDemandas.length === 0 ? (
                   <motion.tr initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
                     <td colSpan={4} className="py-16 text-center text-slate-500 dark:text-slate-400">
                       <ClipboardText size={48} weight="duotone" className="mx-auto text-slate-300 mb-4" />
@@ -296,7 +288,7 @@ export default function DemandasPage() {
                             <span className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded">
                               <MapPin size={14} className="text-slate-400" /> {demanda.bairro}
                             </span>
-                            <span className="text-slate-400">&bull; {format(new Date(demanda.dataCriacao), "dd/MM/yyyy", { locale: ptBR })}</span>
+                            <span className="text-slate-400">&bull; {demanda.created_at ? format(new Date(demanda.created_at), "dd/MM/yyyy", { locale: ptBR }) : '-'}</span>
                           </div>
                         </td>
                         
@@ -306,9 +298,9 @@ export default function DemandasPage() {
                               <User size={16} weight="fill" />
                             </div>
                             <div>
-                              <div className="font-bold text-slate-800 dark:text-white group-hover:text-brand transition-colors cursor-pointer">{demanda.cidadaoNome}</div>
+                              <div className="font-bold text-slate-800 dark:text-white group-hover:text-brand transition-colors cursor-pointer">{demanda.cidadao_nome}</div>
                               <div className="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-1 mt-0.5">
-                                <WhatsappLogo size={12} className="text-green-500" /> {demanda.cidadaoTelefone}
+                                <WhatsappLogo size={12} className="text-green-500" /> {demanda.cidadao_telefone}
                               </div>
                             </div>
                           </div>
@@ -388,16 +380,16 @@ export default function DemandasPage() {
                     <MapPin size={16} className="text-slate-400" />
                     {detailDemanda.bairro}
                     <span className="text-slate-400">&bull;</span>
-                    {format(new Date(detailDemanda.dataCriacao), "dd/MM/yyyy", { locale: ptBR })}
+                    {detailDemanda.created_at ? format(new Date(detailDemanda.created_at), "dd/MM/yyyy", { locale: ptBR }) : '-'}
                   </div>
                 </div>
 
                 {/* Cidadão */}
                 <div className="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-4">
                   <label className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2 block">Cidadão</label>
-                  <div className="font-bold text-slate-800 dark:text-white">{detailDemanda.cidadaoNome}</div>
+                  <div className="font-bold text-slate-800 dark:text-white">{detailDemanda.cidadao_nome}</div>
                   <div className="text-sm text-slate-500 dark:text-slate-400 flex items-center gap-1 mt-1">
-                    <WhatsappLogo size={14} className="text-green-500" /> {detailDemanda.cidadaoTelefone}
+                    <WhatsappLogo size={14} className="text-green-500" /> {detailDemanda.cidadao_telefone}
                   </div>
                 </div>
 
@@ -487,21 +479,21 @@ export default function DemandasPage() {
                     <div className="space-y-1.5">
                       <label className="text-sm font-bold text-slate-700 dark:text-slate-200">Nome do Solicitante*</label>
                       <input 
-                        {...form.register("cidadaoNome")}
+                        {...form.register("cidadao_nome")}
                         placeholder="Ex: João da Silva"
                         className="w-full px-4 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand/20 focus:border-brand text-slate-800 dark:text-white text-sm"
                       />
-                      {form.formState.errors.cidadaoNome && <p className="text-red-500 text-xs">{form.formState.errors.cidadaoNome.message}</p>}
+                      {form.formState.errors.cidadao_nome && <p className="text-red-500 text-xs">{form.formState.errors.cidadao_nome.message}</p>}
                     </div>
 
                     <div className="space-y-1.5">
                       <label className="text-sm font-bold text-slate-700 dark:text-slate-200">WhatsApp de Contato*</label>
                       <input 
-                        {...form.register("cidadaoTelefone")}
+                        {...form.register("cidadao_telefone")}
                         placeholder="(DD) 90000-0000"
                         className="w-full px-4 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand/20 focus:border-brand text-slate-800 dark:text-white text-sm"
                       />
-                      {form.formState.errors.cidadaoTelefone && <p className="text-red-500 text-xs">{form.formState.errors.cidadaoTelefone.message}</p>}
+                      {form.formState.errors.cidadao_telefone && <p className="text-red-500 text-xs">{form.formState.errors.cidadao_telefone.message}</p>}
                     </div>
                   </div>
                 </div>
@@ -580,7 +572,3 @@ export default function DemandasPage() {
     </div>
   );
 }
-
-
-
-

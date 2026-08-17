@@ -6,6 +6,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { motion, AnimatePresence } from "framer-motion";
 import toast, { Toaster } from "react-hot-toast";
+import { api } from "@/lib/api";
 import {
   Users,
   Plus,
@@ -50,8 +51,7 @@ export default function UsuariosPage() {
 
   const fetchUsuarios = async () => {
     try {
-      const res = await fetch("http://localhost:3333/api/usuarios");
-      const data = await res.json();
+      const data = await api.get("/usuarios");
       setUsuarios(data.map((u: any) => ({ ...u, status: "Ativo", role: u.role.charAt(0).toUpperCase() + u.role.slice(1) })));
     } catch (err) {
       toast.error("Erro ao carregar usuários");
@@ -82,12 +82,7 @@ export default function UsuariosPage() {
 
   const onSubmit = async (data: UsuarioForm) => {
     try {
-      const res = await fetch("http://localhost:3333/api/auth/register", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...data, password: data.senha, role: data.role.toLowerCase() })
-      });
-      if (!res.ok) throw new Error();
+      await api.post("/auth/register", { ...data, password: data.senha, role: data.role.toLowerCase() });
       toast.success("Usuário criado com sucesso!");
       fetchUsuarios();
       setIsModalOpen(false);
@@ -99,7 +94,7 @@ export default function UsuariosPage() {
 
   const deleteUsuario = async (id: string) => {
     try {
-      await fetch(`http://localhost:3333/api/usuarios/${id}`, { method: "DELETE" });
+      await api.delete(`/usuarios/${id}`);
       setUsuarios(usuarios.filter(u => u.id !== id));
       toast.success("Usuário removido do sistema");
     } catch (err) {
@@ -132,11 +127,7 @@ export default function UsuariosPage() {
 
   const onEditSubmit = async (data: UsuarioForm) => {
     try {
-      await fetch(`http://localhost:3333/api/usuarios/${selectedUser?.id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ nome: data.nome, email: data.email, role: data.role.toLowerCase() })
-      });
+      await api.put(`/usuarios/${selectedUser?.id}`, { nome: data.nome, email: data.email, role: data.role.toLowerCase() });
       fetchUsuarios();
       toast.success("Usuário atualizado com sucesso!");
       setModalEditar(false);

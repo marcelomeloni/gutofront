@@ -1,8 +1,8 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { api } from "@/lib/api";
 import { useForm } from "react-hook-form";
+import { api } from "@/lib/api";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { format, isPast, parseISO } from "date-fns";
@@ -45,31 +45,25 @@ type Coluna = typeof COLUNAS[number];
 
 export default function TarefasPage() {
   const [tarefas, setTarefas] = useState<TarefaItem[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+
+  const fetchTarefas = async () => {
+    try {
+      setIsLoading(true);
+      const response = await api.get('/tarefas');
+      setTarefas(response.data || []);
+    } catch (error) {
+      console.error("Erro ao buscar tarefas:", error);
+      toast.error("Erro ao carregar tarefas");
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   useEffect(() => {
-    const fetchTarefas = async () => {
-      try {
-        const data = await api.tarefas.getAll();
-        setTarefas(data.map((t: any) => ({
-          id: t.id,
-          titulo: t.titulo,
-          descricao: t.descricao || '',
-          responsavel: t.responsavel || '',
-          prazo: t.prazo || '',
-          prioridade: t.prioridade || 'Normal',
-          status: t.status || 'A Fazer'
-        })));
-      } catch (err: any) {
-        toast.error('Erro ao carregar tarefas: ' + err.message);
-      } finally {
-        setLoading(false);
-      }
-    };
     fetchTarefas();
   }, []);
-
-  const [isModalOpen, setIsModalOpen] = useState(false);
 
   const form = useForm<TarefaForm>({
     resolver: zodResolver(tarefaSchema),
@@ -81,48 +75,42 @@ export default function TarefasPage() {
 
   const onSubmit = async (data: TarefaForm) => {
     try {
-      const created = await api.tarefas.create(data);
-      const newItem: TarefaItem = {
-        id: created.id,
-        titulo: created.titulo,
-        descricao: created.descricao || '',
-        responsavel: created.responsavel || '',
-        prazo: created.prazo || '',
-        prioridade: created.prioridade || 'Normal',
-        status: created.status || 'A Fazer'
-      };
-      setTarefas([...tarefas, newItem]);
-      toast.success('Tarefa criada com sucesso!');
+      const response = await api.post('/tarefas', data);
+      setTarefas([...tarefas, response.data]);
+      toast.success("Tarefa criada com sucesso!");
       setIsModalOpen(false);
       form.reset();
-    } catch (err: any) {
-      toast.error('Erro ao criar: ' + err.message);
+    } catch (error) {
+      console.error("Erro ao criar tarefa:", error);
+      toast.error("Erro ao criar tarefa");
     }
   };
 
   const deleteTarefa = async (id: string) => {
     try {
-      await api.tarefas.remove(id);
+      await api.delete(`/tarefas/${id}`);
       setTarefas(tarefas.filter(t => t.id !== id));
-      toast.success('Tarefa excluída');
-    } catch (err: any) {
-      toast.error('Erro ao excluir: ' + err.message);
+      toast.success("Tarefa excluída");
+    } catch (error) {
+      console.error("Erro ao excluir tarefa:", error);
+      toast.error("Erro ao excluir tarefa");
     }
   };
 
   const moverTarefa = async (id: string, novoStatus: Coluna) => {
     try {
-      await api.tarefas.update(id, { status: novoStatus });
+      await api.put(`/tarefas/${id}`, { status: novoStatus });
       setTarefas(tarefas.map(t => t.id === id ? { ...t, status: novoStatus } : t));
-    } catch (err: any) {
-      toast.error('Erro ao atualizar: ' + err.message);
+    } catch (error) {
+      console.error("Erro ao atualizar tarefa:", error);
+      toast.error("Erro ao mover tarefa");
     }
   };
 
   const getPrioridadeColor = (prio: string) => {
     switch (prio) {
-      case "Alta": return "bg-red-100 text-red-700 border-red-200 dark:bg-red-500/20 dark:text-red-400 dark:border-red-500/20";
-      case "Normal": return "bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-500/20 dark:text-blue-400 dark:border-blue-500/20";
+      case "Alta": return "bg-red-100 text-red-700 border-red-200";
+      case "Normal": return "bg-blue-100 text-blue-700 border-blue-200";
       case "Baixa": return "bg-slate-100 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700";
       default: return "";
     }
@@ -169,11 +157,11 @@ export default function TarefasPage() {
           const tarefasColuna = tarefas.filter(t => t.status === coluna);
           
           return (
-            <div key={coluna} className="w-[320px] shrink-0 flex flex-col bg-slate-100/70 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl max-h-full">
+            <div key={coluna} className="w-[320px] shrink-0 flex flex-col bg-slate-100/70 border border-slate-200 dark:border-slate-700 rounded-xl max-h-full">
               {/* Column Header */}
-              <div className="p-3 border-b border-slate-200 dark:border-slate-700/50 flex justify-between items-center bg-slate-100/50 dark:bg-slate-800/80 rounded-t-xl sticky top-0 z-10">
+              <div className="p-3 border-b border-slate-200 dark:border-slate-700/50 flex justify-between items-center bg-slate-100/50 rounded-t-xl sticky top-0 z-10">
                 <h3 className="font-bold text-slate-700 dark:text-slate-200 text-sm">{coluna}</h3>
-                <span className="bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 text-xs font-bold px-2 py-0.5 rounded-full">
+                <span className="bg-slate-200 text-slate-600 dark:text-slate-300 text-xs font-bold px-2 py-0.5 rounded-full">
                   {tarefasColuna.length}
                 </span>
               </div>
@@ -224,7 +212,7 @@ export default function TarefasPage() {
                             )}
                           </div>
                           
-                          <div className="p-3 bg-slate-50/50 dark:bg-slate-800/50 rounded-b-lg flex flex-col gap-2.5">
+                          <div className="p-3 bg-slate-50/50 rounded-b-lg flex flex-col gap-2.5">
                             <div className="flex justify-between items-center">
                               <div className="flex items-center gap-1.5">
                                 <UserCircle size={16} className="text-blue-500" weight="fill" />

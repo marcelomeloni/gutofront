@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { api } from "@/lib/api";
 import {
   MapPin,
   MagnifyingGlass,
@@ -22,7 +23,6 @@ import {
   SquaresFour
 } from "@phosphor-icons/react";
 import toast, { Toaster } from "react-hot-toast";
-import { api } from "@/lib/api";
 
 type BairroStatus = 'Não Iniciado' | 'Em Mapeamento' | 'Em Aproximação' | 'Ativo' | 'Consolidado' | 'Suspenso';
 type Priority = 'Baixa' | 'Normal' | 'Alta';
@@ -42,35 +42,10 @@ interface Bairro {
 
 export default function BairrosPage() {
   const [bairros, setBairros] = useState<Bairro[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(true);
   const [viewMode, setViewMode] = useState<'table' | 'cards'>('cards');
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [search, setSearch] = useState("");
-
-  useEffect(() => {
-    const fetchBairros = async () => {
-      try {
-        const data = await api.bairros.getAll();
-        setBairros(data.map((b: any) => ({
-          id: b.id,
-          name: b.nome || '',
-          region: b.regiao || '',
-          priority: b.prioridade || 'Normal',
-          status: b.status || 'Não Iniciado',
-          contacts: b.contatos_base || 0,
-          leaders: b.lideres || 0,
-          goal: b.meta || 0,
-          responsible: b.responsavel || '',
-          lastAction: b.ultima_acao || 'Nenhuma ação'
-        })));
-      } catch (err: any) {
-        toast.error('Erro ao carregar bairros: ' + err.message);
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchBairros();
-  }, []);
 
   const stats = {
     total: bairros.length,
@@ -99,13 +74,29 @@ export default function BairrosPage() {
     }
   };
 
+  const fetchBairros = async () => {
+    try {
+      setIsLoading(true);
+      const data = await api.get('/bairros');
+      setBairros(Array.isArray(data) ? data : []);
+    } catch (error) {
+      toast.error("Erro ao carregar bairros.");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchBairros();
+  }, []);
+
   const deleteBairro = async (id: string) => {
     try {
-      await api.bairros.remove(id);
+      await api.delete(`/bairros/${id}`);
       setBairros(bairros.filter(b => b.id !== id));
       toast.success("Bairro removido com sucesso!");
-    } catch (err: any) {
-      toast.error('Erro ao remover bairro: ' + err.message);
+    } catch (error) {
+      toast.error("Erro ao remover bairro.");
     }
   };
 

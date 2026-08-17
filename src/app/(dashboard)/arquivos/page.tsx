@@ -43,26 +43,22 @@ interface ArquivoItem extends ArquivoForm {
 
 export default function ArquivosPage() {
   const [arquivos, setArquivos] = useState<ArquivoItem[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(true);
+
+  const fetchArquivos = async () => {
+    try {
+      setIsLoading(true);
+      const data = await api.get('/arquivos');
+      setArquivos(data);
+    } catch (error) {
+      console.error(error);
+      toast.error('Erro ao carregar arquivos');
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   useEffect(() => {
-    const fetchArquivos = async () => {
-      try {
-        const data = await api.arquivos.getAll();
-        setArquivos(data.map((a: any) => ({
-          id: a.id,
-          titulo: a.titulo,
-          url: a.url,
-          categoria: a.categoria || 'Documentos Gerais',
-          acesso: a.acesso || 'Interno',
-          dataAdicao: a.created_at
-        })));
-      } catch (err: any) {
-        toast.error('Erro ao carregar arquivos: ' + err.message);
-      } finally {
-        setLoading(false);
-      }
-    };
     fetchArquivos();
   }, []);
 
@@ -80,31 +76,25 @@ export default function ArquivosPage() {
 
   const onSubmit = async (data: ArquivoForm) => {
     try {
-      const created = await api.arquivos.create(data);
-      const newItem: ArquivoItem = {
-        id: created.id,
-        titulo: created.titulo,
-        url: created.url,
-        categoria: created.categoria,
-        acesso: created.acesso,
-        dataAdicao: created.created_at
-      };
-      setArquivos([newItem, ...arquivos]);
-      toast.success('Link do Google Drive salvo!');
+      await api.post('/arquivos', data);
+      toast.success("Link do Google Drive salvo!");
+      fetchArquivos();
       setIsModalOpen(false);
       form.reset();
-    } catch (err: any) {
-      toast.error('Erro ao salvar link: ' + err.message);
+    } catch (error) {
+      console.error(error);
+      toast.error('Erro ao salvar arquivo');
     }
   };
 
   const deleteArquivo = async (id: string) => {
     try {
-      await api.arquivos.remove(id);
-      setArquivos(arquivos.filter(a => a.id !== id));
-      toast.success('Link removido da biblioteca');
-    } catch (err: any) {
-      toast.error('Erro ao remover: ' + err.message);
+      await api.delete(`/arquivos/${id}`);
+      toast.success("Link removido da biblioteca");
+      fetchArquivos();
+    } catch (error) {
+      console.error(error);
+      toast.error('Erro ao remover arquivo');
     }
   };
 
@@ -116,9 +106,9 @@ export default function ArquivosPage() {
 
   const getAcessoConfig = (acesso: string) => {
     switch (acesso) {
-      case "Público": return { icon: Globe, color: "text-green-600 bg-green-50 border-green-200 dark:bg-green-500/20 dark:text-green-400 dark:border-green-500/20" };
-      case "Interno": return { icon: Users, color: "text-brand bg-blue-50 border-blue-200 dark:bg-blue-500/20 dark:text-blue-400 dark:border-blue-500/20" };
-      case "Confidencial": return { icon: LockKey, color: "text-red-600 bg-red-50 border-red-200 dark:bg-red-500/20 dark:text-red-400 dark:border-red-500/20" };
+      case "Público": return { icon: Globe, color: "text-green-600 bg-green-50 border-green-200" };
+      case "Interno": return { icon: Users, color: "text-brand bg-blue-50 border-blue-200" };
+      case "Confidencial": return { icon: LockKey, color: "text-red-600 bg-red-50 border-red-200" };
       default: return { icon: Globe, color: "text-slate-600 dark:text-slate-300 bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700" };
     }
   };
@@ -221,7 +211,7 @@ export default function ArquivosPage() {
                       href={arquivo.url} 
                       target="_blank" 
                       rel="noopener noreferrer"
-                      className="flex items-center gap-1.5 text-sm font-bold text-brand hover:text-brand-hover bg-blue-50 dark:bg-blue-500/20 hover:bg-blue-100 dark:hover:bg-blue-500/30 px-3 py-1.5 rounded-lg transition-colors"
+                      className="flex items-center gap-1.5 text-sm font-bold text-brand hover:text-brand-hover bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded-lg transition-colors"
                     >
                       <LinkIcon size={16} weight="bold" />
                       Acessar

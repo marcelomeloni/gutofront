@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { api } from "@/lib/api";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
@@ -25,8 +24,11 @@ import {
   CaretUp,
   CaretDown,
   ArrowRight,
-  Eye
+  Eye,
+  LockKey
 } from "@phosphor-icons/react";
+import { api } from "@/lib/api";
+import { useAuth } from "@/contexts/AuthContext";
 
 // --- Schemas ---
 
@@ -43,38 +45,15 @@ type LeadForm = z.infer<typeof leadSchema>;
 
 interface LeadItem extends LeadForm {
   id: string;
-  dataCadastro: string;
+  created_at: string;
 }
 
 const ENGAJAMENTO_PIPELINE: ("Frio" | "Simpatizante" | "Apoiador")[] = ["Frio", "Simpatizante", "Apoiador"];
 
 export default function LeadsPage() {
+  const { user } = useAuth();
   const [leads, setLeads] = useState<LeadItem[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    const fetchLeads = async () => {
-      try {
-        const data = await api.leads.getAll();
-        setLeads(data.map((l: any) => ({
-          id: l.id,
-          nome: l.nome,
-          telefone: l.telefone,
-          bairro: l.bairro || '',
-          origem: l.origem || 'WhatsApp',
-          engajamento: l.engajamento || 'Frio',
-          observacoes: l.observacoes || '',
-          dataCadastro: l.created_at
-        })));
-      } catch (err: any) {
-        toast.error('Erro ao carregar leads: ' + err.message);
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchLeads();
-  }, []);
-
+  const [isLoading, setIsLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [detailLead, setDetailLead] = useState<LeadItem | null>(null);
   const [search, setSearch] = useState("");
@@ -87,42 +66,67 @@ export default function LeadsPage() {
     }
   });
 
+  if (user && user.role !== "admin" && user.role !== "operacional") {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[60vh] text-center px-4">
+        <div className="w-20 h-20 bg-red-100 dark:bg-red-900/30 text-red-500 rounded-full flex items-center justify-center mb-6">
+          <LockKey size={40} weight="duotone" />
+        </div>
+        <h1 className="text-3xl font-black text-slate-800 dark:text-white mb-3">Acesso Negado</h1>
+        <p className="text-slate-500 dark:text-slate-400 max-w-md">
+          Sua função atual (<span className="font-bold text-slate-700 dark:text-slate-300">{user.role}</span>) não permite acessar a base de Leads. O acesso é restrito apenas para as funções Admin e Operacional.
+        </p>
+      </div>
+    );
+  }
+
+  const fetchLeads = async () => {
+    try {
+      setIsLoading(true);
+      const data = await api.get('/leads');
+      setLeads(data || []);
+    } catch (error) {
+      toast.error("Erro ao carregar contatos.");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchLeads();
+  }, []);
+
   const onSubmit = async (data: LeadForm) => {
     try {
-      const created = await api.leads.create(data);
-      const newItem: LeadItem = {
-        id: created.id,
-        nome: created.nome,
-        telefone: created.telefone,
-        bairro: created.bairro || '',
-        origem: created.origem,
-        engajamento: created.engajamento || 'Frio',
-        observacoes: created.observacoes || '',
-        dataCadastro: created.created_at
+      const payload = {
+        ...data,
+        captado_por: user?.id
       };
-      setLeads([newItem, ...leads]);
-      toast.success('Contato cadastrado com sucesso!');
+      const response = await api.post('/leads', payload);
+      setLeads([response, ...leads]);
+      toast.success("Contato cadastrado com sucesso!");
       setIsModalOpen(false);
       form.reset();
-    } catch (err: any) {
-      toast.error('Erro ao cadastrar: ' + err.message);
+    } catch (error) {
+      toast.error("Erro ao salvar contato.");
     }
   };
 
   const deleteLead = async (id: string) => {
     try {
-      await api.leads.remove(id);
+      await api.delete(`/leads/${id}`);
       setLeads(leads.filter(l => l.id !== id));
       setDetailLead(null);
-      toast.success('Contato removido da base');
-    } catch (err: any) {
-      toast.error('Erro ao remover: ' + err.message);
+      toast.success("Contato removido da base");
+    } catch (error) {
+      toast.error("Erro ao remover contato.");
     }
   };
 
   const changeEngajamento = async (id: string, newEngajamento: "Frio" | "Simpatizante" | "Apoiador") => {
     try {
-      await api.leads.update(id, { engajamento: newEngajamento });
+      // Assumindo que a API aceita atualizações com o mesmo formato
+      await api.put(`/leads/${id}/engajamento`, { engajamento: newEngajamento });
       setLeads(leads.map(l => l.id === id ? { ...l, engajamento: newEngajamento } : l));
       const labels: Record<string, string> = {
         "Frio": "❄️ Frio",
@@ -133,8 +137,8 @@ export default function LeadsPage() {
       if (detailLead?.id === id) {
         setDetailLead(prev => prev ? { ...prev, engajamento: newEngajamento } : null);
       }
-    } catch (err: any) {
-      toast.error('Erro ao atualizar: ' + err.message);
+    } catch (error) {
+      toast.error("Erro ao atualizar engajamento.");
     }
   };
 
@@ -146,8 +150,8 @@ export default function LeadsPage() {
   };
 
   const filteredLeads = leads.filter(l => 
-    l.nome.toLowerCase().includes(search.toLowerCase()) || 
-    l.telefone.includes(search) || 
+    l.nome?.toLowerCase().includes(search.toLowerCase()) || 
+    l.telefone?.includes(search) || 
     l.bairro?.toLowerCase().includes(search.toLowerCase())
   );
 
@@ -245,7 +249,13 @@ export default function LeadsPage() {
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
               <AnimatePresence>
-                {filteredLeads.length === 0 ? (
+                {isLoading ? (
+                  <motion.tr initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+                    <td colSpan={4} className="py-16 text-center text-slate-500 dark:text-slate-400">
+                      <p className="text-lg font-medium text-slate-600 dark:text-slate-300">Carregando...</p>
+                    </td>
+                  </motion.tr>
+                ) : filteredLeads.length === 0 ? (
                   <motion.tr initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
                     <td colSpan={4} className="py-16 text-center text-slate-500 dark:text-slate-400">
                       <UsersThree size={48} weight="duotone" className="mx-auto text-slate-300 mb-4" />
@@ -420,7 +430,7 @@ export default function LeadsPage() {
                   <div className="flex justify-between text-sm">
                     <span className="text-slate-500 dark:text-slate-400">Data de Cadastro</span>
                     <span className="font-medium text-slate-800 dark:text-white">
-                      {new Date(detailLead.dataCadastro).toLocaleDateString("pt-BR")}
+                      {detailLead.created_at ? new Date(detailLead.created_at).toLocaleDateString("pt-BR") : '-'}
                     </span>
                   </div>
                 </div>
@@ -437,22 +447,34 @@ export default function LeadsPage() {
               </div>
 
               {/* Footer Actions */}
-              <div className="p-6 border-t border-slate-100 dark:border-slate-800 flex gap-3">
-                {ENGAJAMENTO_PIPELINE.indexOf(detailLead.engajamento) < ENGAJAMENTO_PIPELINE.length - 1 && (
-                  <button 
-                    onClick={() => promoteEngajamento(detailLead)}
-                    className="flex-1 bg-brand hover:bg-brand-hover text-black font-bold py-3 rounded-lg flex items-center justify-center gap-2 transition-colors"
-                  >
-                    <ArrowRight size={18} weight="bold" />
-                    Promover para {ENGAJAMENTO_PIPELINE[ENGAJAMENTO_PIPELINE.indexOf(detailLead.engajamento) + 1]}
-                  </button>
-                )}
-                <button 
-                  onClick={() => deleteLead(detailLead.id)}
-                  className="px-4 py-3 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg font-medium transition-colors"
+              <div className="p-6 border-t border-slate-100 dark:border-slate-800 flex flex-col gap-3">
+                <a 
+                  href={`https://wa.me/55${detailLead.telefone.replace(/\D/g, '')}?text=Olá%20${encodeURIComponent(detailLead.nome.split(' ')[0])},%20tudo%20bem?`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="w-full bg-[#25D366] hover:bg-[#1ebd5a] text-white font-bold py-3 rounded-lg flex items-center justify-center gap-2 transition-colors shadow-sm"
                 >
-                  <Trash size={18} />
-                </button>
+                  <WhatsappLogo size={20} weight="fill" />
+                  Chamar no WhatsApp
+                </a>
+                
+                <div className="flex gap-3">
+                  {ENGAJAMENTO_PIPELINE.indexOf(detailLead.engajamento) < ENGAJAMENTO_PIPELINE.length - 1 && (
+                    <button 
+                      onClick={() => promoteEngajamento(detailLead)}
+                      className="flex-1 bg-brand hover:bg-brand-hover text-black font-bold py-3 rounded-lg flex items-center justify-center gap-2 transition-colors"
+                    >
+                      <ArrowRight size={18} weight="bold" />
+                      Promover para {ENGAJAMENTO_PIPELINE[ENGAJAMENTO_PIPELINE.indexOf(detailLead.engajamento) + 1]}
+                    </button>
+                  )}
+                  <button 
+                    onClick={() => deleteLead(detailLead.id)}
+                    className="px-4 py-3 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg font-medium transition-colors"
+                  >
+                    <Trash size={18} />
+                  </button>
+                </div>
               </div>
             </motion.div>
           </div>
@@ -593,5 +615,3 @@ export default function LeadsPage() {
     </div>
   );
 }
-
-

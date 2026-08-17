@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { api } from "@/lib/api";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
@@ -8,7 +9,6 @@ import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { motion, AnimatePresence } from "framer-motion";
 import toast, { Toaster } from "react-hot-toast";
-import { api } from "@/lib/api";
 import {
   MicrophoneStage,
   Radio,
@@ -40,15 +40,8 @@ const entrevistaSchema = z.object({
 
 type EntrevistaForm = z.infer<typeof entrevistaSchema>;
 
-interface EntrevistaItem {
+interface EntrevistaItem extends EntrevistaForm {
   id: string;
-  veiculoId?: string;
-  veiculoNome: string;
-  pauta: string;
-  data: string;
-  horario: string;
-  status: string;
-  briefing?: string;
 }
 
 const veiculoSchema = z.object({
@@ -68,48 +61,36 @@ interface VeiculoItem extends VeiculoForm {
 
 export default function ImprensaPage() {
   const [activeTab, setActiveTab] = useState<'agenda' | 'veiculos'>('agenda');
-  const [loading, setLoading] = useState(true);
 
   const [entrevistas, setEntrevistas] = useState<EntrevistaItem[]>([]);
+
   const [veiculos, setVeiculos] = useState<VeiculoItem[]>([]);
+
+  useEffect(() => {
+    fetchEntrevistas();
+    fetchVeiculos();
+  }, []);
+
+  const fetchEntrevistas = async () => {
+    try {
+      const data = await api.get('/imprensa');
+      setEntrevistas(Array.isArray(data) ? data : []);
+    } catch (error) {
+      toast.error("Erro ao carregar entrevistas");
+    }
+  };
+
+  const fetchVeiculos = async () => {
+    try {
+      const data = await api.get('/imprensa/veiculos');
+      setVeiculos(Array.isArray(data) ? data : []);
+    } catch (error) {
+      console.error("Erro ao carregar veículos", error);
+    }
+  };
 
   const [modalEntrevista, setModalEntrevista] = useState(false);
   const [modalVeiculo, setModalVeiculo] = useState(false);
-
-  useEffect(() => {
-    const fetchData = async () => {
-      try {
-        const [veiculosData, entrevistasData] = await Promise.all([
-          api.imprensa.veiculos.getAll(),
-          api.imprensa.entrevistas.getAll()
-        ]);
-        
-        setVeiculos(veiculosData.map((v: any) => ({
-          id: v.id,
-          nome: v.nome,
-          tipo: v.tipo,
-          cidade: v.cidade,
-          site: v.site || ''
-        })));
-        
-        setEntrevistas(entrevistasData.map((e: any) => ({
-          id: e.id,
-          veiculoId: e.veiculo_id,
-          veiculoNome: e.imprensa_veiculos?.nome || 'Veículo desconhecido',
-          pauta: e.pauta,
-          data: e.data_entrevista,
-          horario: e.horario,
-          status: e.status || 'Pendente',
-          briefing: e.briefing || ''
-        })));
-      } catch (err: any) {
-        toast.error('Erro ao carregar dados: ' + err.message);
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchData();
-  }, []);
 
   const formEntrevista = useForm<EntrevistaForm>({
     resolver: zodResolver(entrevistaSchema),
@@ -127,93 +108,63 @@ export default function ImprensaPage() {
 
   const onAddEntrevista = async (data: EntrevistaForm) => {
     try {
-      const veiculoMatch = veiculos.find(v => v.nome === data.veiculo);
-      const veiculoId = veiculoMatch ? veiculoMatch.id : undefined;
-      
-      const payload = {
-        veiculo_id: veiculoId,
-        pauta: data.pauta,
-        data_entrevista: data.data,
-        horario: data.horario,
-        status: data.status,
-        briefing: data.briefing
-      };
-      
-      const res = await api.imprensa.entrevistas.create(payload);
-      const novaEntrevista = {
-        id: res.id,
-        veiculoId: res.veiculo_id,
-        veiculoNome: veiculoMatch ? veiculoMatch.nome : data.veiculo,
-        pauta: res.pauta,
-        data: res.data_entrevista,
-        horario: res.horario,
-        status: res.status,
-        briefing: res.briefing
-      };
+      const novaEntrevista = await api.post('/imprensa', data);
       setEntrevistas(prev => [novaEntrevista, ...prev]);
       toast.success("Entrevista agendada com sucesso!");
       setModalEntrevista(false);
       formEntrevista.reset();
-    } catch (err: any) {
-      toast.error('Erro ao agendar entrevista: ' + err.message);
+    } catch (error) {
+      toast.error("Erro ao agendar entrevista");
     }
   };
 
   const onAddVeiculo = async (data: VeiculoForm) => {
     try {
-      const res = await api.imprensa.veiculos.create({
-        nome: data.nome,
-        tipo: data.tipo,
-        cidade: data.cidade,
-        site: data.site
-      });
-      setVeiculos(prev => [...prev, { ...data, id: res.id }]);
+      const novoVeiculo = await api.post('/imprensa/veiculos', data);
+      setVeiculos(prev => [...prev, novoVeiculo]);
       toast.success("Veículo cadastrado!");
       setModalVeiculo(false);
       formVeiculo.reset();
-    } catch (err: any) {
-      toast.error('Erro ao cadastrar veículo: ' + err.message);
+    } catch (error) {
+      toast.error("Erro ao cadastrar veículo");
     }
   };
 
   const deleteEntrevista = async (id: string) => {
     try {
-      await api.imprensa.entrevistas.remove(id);
+      await api.delete(`/imprensa/${id}`);
       setEntrevistas(entrevistas.filter(e => e.id !== id));
       toast.success("Entrevista excluída");
-    } catch (err: any) {
-      toast.error('Erro ao excluir entrevista: ' + err.message);
+    } catch (error) {
+      toast.error("Erro ao excluir entrevista");
     }
   };
 
   const confirmEntrevista = async (id: string) => {
     try {
-      // Assuming update is available, we'll patch the status, but if not we just update local state or omit the update.
-      // Wait, there's no api.imprensa.entrevistas.update specified in the prompt. I will just do api update if possible, or maybe it's not strictly required by the prompt? Prompt didn't mention it. Let's just update local state if we don't have update API mentioned.
-      // Wait, I will just do local state update, or maybe I can guess it's api.imprensa.entrevistas.update.
-      // The prompt didn't say to update confirmEntrevista, only create/delete handlers.
+      await api.put(`/imprensa/${id}`, { status: "Confirmada" });
       setEntrevistas(entrevistas.map(e => e.id === id ? { ...e, status: "Confirmada" } : e));
       toast.success("Entrevista confirmada com sucesso!");
-    } catch (err: any) {
-      toast.error('Erro: ' + err.message);
+    } catch (error) {
+      toast.error("Erro ao confirmar entrevista");
     }
   };
 
   const deleteVeiculo = async (id: string) => {
     try {
-      await api.imprensa.veiculos.remove(id);
+      await api.delete(`/imprensa/veiculos/${id}`);
       setVeiculos(veiculos.filter(v => v.id !== id));
       toast.success("Veículo removido");
-    } catch (err: any) {
-      toast.error('Erro ao remover veículo: ' + err.message);
+    } catch (error) {
+      toast.error("Erro ao remover veículo");
     }
   };
 
   const getStatusStyle = (status: string) => {
     switch(status) {
-      case "Confirmada": return "bg-green-100 text-green-700 border-green-200 dark:bg-green-500/20 dark:text-green-400 dark:border-green-500/20";
-      case "Pendente": return "bg-yellow-100 text-yellow-700 border-yellow-200 dark:bg-yellow-500/20 dark:text-yellow-400 dark:border-yellow-500/20";
-      case "Cancelada": return "bg-red-100 text-red-700 border-red-200 dark:bg-red-500/20 dark:text-red-400 dark:border-red-500/20";
+      case "Confirmada": return "bg-green-100 text-green-700 border-green-200";
+      case "Pendente": return "bg-yellow-100 text-yellow-700 border-yellow-200";
+      case "Cancelada": return "bg-red-100 text-red-700 border-red-200";
       default: return "bg-slate-100 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700";
     }
   };
@@ -227,7 +178,7 @@ export default function ImprensaPage() {
 
       {/* Tabs & Actions */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white dark:bg-slate-900 p-2 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm sticky top-0 z-10">
-        <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-lg w-full md:w-auto">
+        <div className="flex bg-slate-100 p-1 rounded-lg w-full md:w-auto">
           <button 
             onClick={() => setActiveTab('agenda')}
             className={`flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-md font-medium text-sm transition-all ${activeTab === 'agenda' ? 'bg-white dark:bg-slate-900 text-brand shadow-sm' : 'text-slate-600 dark:text-slate-300 hover:text-slate-800 dark:text-white'}`}
@@ -293,7 +244,7 @@ export default function ImprensaPage() {
                         <div>
                           <div className="flex items-center gap-2 mb-1">
                             <Radio size={18} className="text-slate-400" />
-                            <h3 className="font-bold text-slate-800 dark:text-white">{entrevista.veiculoNome}</h3>
+                            <h3 className="font-bold text-slate-800 dark:text-white">{entrevista.veiculo}</h3>
                           </div>
                           <p className="text-sm text-slate-600 dark:text-slate-300 line-clamp-2">{entrevista.pauta}</p>
                         </div>
@@ -314,9 +265,9 @@ export default function ImprensaPage() {
                       </div>
 
                       {entrevista.briefing && (
-                        <div className="mt-auto bg-blue-50/50 dark:bg-blue-900/20 p-3 rounded-lg border border-blue-100 dark:border-blue-800/50 flex gap-2">
+                        <div className="mt-auto bg-blue-50/50 p-3 rounded-lg border border-blue-100 flex gap-2">
                           <ShieldWarning size={18} className="text-blue-500 shrink-0 mt-0.5" />
-                          <div className="text-xs text-blue-900 dark:text-blue-200 leading-relaxed">
+                          <div className="text-xs text-blue-900 leading-relaxed">
                             <span className="font-bold block mb-1">Briefing Confidencial:</span>
                             {entrevista.briefing}
                           </div>

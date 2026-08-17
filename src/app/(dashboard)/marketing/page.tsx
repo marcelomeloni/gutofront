@@ -8,6 +8,7 @@ import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { motion, AnimatePresence } from "framer-motion";
 import toast, { Toaster } from "react-hot-toast";
+import { api } from "@/lib/api";
 import {
   Fire,
   ArrowsClockwise,
@@ -31,7 +32,6 @@ import {
   ShareNetwork,
   Eye
 } from "@phosphor-icons/react";
-import { api } from "@/lib/api";
 
 const channelsList = [
   { id: "instagram", name: "Instagram", icon: InstagramLogo, color: "text-pink-600 bg-pink-50 border-pink-200 dark:text-pink-400 dark:bg-pink-900/20 dark:border-pink-800/50" },
@@ -61,34 +61,25 @@ interface ContentItem extends ContentFormValues {
 
 export default function MarketingPage() {
   const [contents, setContents] = useState<ContentItem[]>([]);
-  const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<'fila' | 'pautas'>('fila');
+  const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
-    const fetchMarketing = async () => {
-      try {
-        const data = await api.marketing.getAll();
-        setContents(data.map((m: any) => ({
-          id: m.id,
-          title: m.titulo || '',
-          type: m.tipo || 'Vídeo Curto',
-          priority: m.prioridade || 'Normal',
-          channels: m.canais ? (typeof m.canais === 'string' ? JSON.parse(m.canais) : m.canais) : [],
-          script: m.roteiro || '',
-          creationDate: m.created_at ? m.created_at.split('T')[0] : new Date().toISOString().split('T')[0],
-          deadlineDate: m.prazo_publicacao ? m.prazo_publicacao.split('T')[0] : '',
-          responsible: m.responsavel_id || '', // we'll use responsible string
-          status: m.status || 'Planejamento'
-        })));
-      } catch (err: any) {
-        toast.error('Erro ao carregar marketing: ' + err.message);
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchMarketing();
+    fetchContents();
   }, []);
+
+  const fetchContents = async () => {
+    try {
+      setIsLoading(true);
+      const data = await api.get('/marketing');
+      setContents(Array.isArray(data) ? data : []);
+    } catch (error) {
+      toast.error('Erro ao carregar conteúdos');
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const {
     register,
@@ -120,29 +111,17 @@ export default function MarketingPage() {
 
   const onSubmit = async (data: ContentFormValues) => {
     try {
-      const payload = {
-        titulo: data.title,
-        tipo: data.type,
-        prioridade: data.priority,
-        status: 'Planejamento',
-        canais: JSON.stringify(data.channels),
-        roteiro: data.script,
-        prazo_publicacao: data.deadlineDate || null,
-        responsavel_id: data.responsible // assuming text is okay for now based on mappings
-      };
-      const created = await api.marketing.create(payload);
-
-      const newItem: ContentItem = {
+      const newItem = {
         ...data,
-        id: created.id,
         status: "Planejamento",
       };
       
-      setContents((prev) => [newItem, ...prev]);
+      const savedItem = await api.post('/marketing', newItem);
+      setContents((prev) => [savedItem, ...prev]);
       toast.success("Conteúdo adicionado à fila editorial!");
       closeModal();
-    } catch (err: any) {
-      toast.error('Erro ao criar conteúdo: ' + err.message);
+    } catch (error) {
+      toast.error("Erro ao adicionar conteúdo");
     }
   };
 
@@ -153,11 +132,11 @@ export default function MarketingPage() {
 
   const deleteContent = async (id: string) => {
     try {
-      await api.marketing.remove(id);
+      await api.delete(`/marketing/${id}`);
       setContents(contents.filter(c => c.id !== id));
       toast.success("Conteúdo excluído");
-    } catch (err: any) {
-      toast.error('Erro ao excluir conteúdo: ' + err.message);
+    } catch (error) {
+      toast.error("Erro ao excluir conteúdo");
     }
   };
 

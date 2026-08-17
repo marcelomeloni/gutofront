@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { api } from "@/lib/api";
 import { useForm, useFieldArray } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
@@ -20,7 +21,6 @@ import {
   Flag,
   ListChecks
 } from "@phosphor-icons/react";
-import { api } from "@/lib/api";
 
 const eventSchema = z.object({
   name: z.string().min(3, "Nome muito curto"),
@@ -42,30 +42,46 @@ interface EventItem extends EventFormValues {
 
 export default function AgendaPage() {
   const [events, setEvents] = useState<EventItem[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
 
+  const fetchEvents = async () => {
+    try {
+      setIsLoading(true);
+      const data = await api.get('/agenda');
+      // Map DB to UI
+      const mapped = data.map((d: any) => {
+        let desc = d.descricao || '';
+        let chk = [];
+        if (desc.includes('---CHECKLIST---')) {
+          const parts = desc.split('---CHECKLIST---');
+          desc = parts[0].trim();
+          try {
+            chk = JSON.parse(parts[1].trim());
+          } catch(e) {}
+        }
+        return {
+
+        id: d.id,
+        name: d.titulo,
+        description: desc,
+        startDate: d.data_inicio,
+        endDate: d.data_fim || '',
+        responsible: d.responsavel,
+        priority: d.prioridade,
+        status: d.status || 'Pendente',
+        checklist: chk
+        };
+      });
+      setEvents(mapped);
+    } catch (error) {
+      toast.error("Erro ao carregar agenda");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   useEffect(() => {
-    const fetchEvents = async () => {
-      try {
-        const data = await api.agenda.getAll();
-        setEvents(data.map((e: any) => ({
-          id: e.id,
-          name: e.titulo || '',
-          description: e.descricao || '',
-          startDate: e.data_inicio ? e.data_inicio.split('T')[0] : '',
-          endDate: e.data_fim ? e.data_fim.split('T')[0] : '',
-          responsible: e.responsavel || '',
-          priority: e.prioridade || 'Média',
-          status: e.status || 'Pendente',
-          checklist: []
-        })));
-      } catch (err: any) {
-        toast.error('Erro ao carregar agenda: ' + err.message);
-      } finally {
-        setLoading(false);
-      }
-    };
     fetchEvents();
   }, []);
 
@@ -92,31 +108,25 @@ export default function AgendaPage() {
     try {
       const payload = {
         titulo: data.name,
-        descricao: data.description,
+        descricao: data.checklist && data.checklist.filter(c => c.text.trim() !== '').length > 0 
+          ? data.description + '\n\n---CHECKLIST---\n' + JSON.stringify(data.checklist.filter(c => c.text.trim() !== '').map((c, i) => ({ id: String(i), text: c.text, done: false })))
+          : data.description,
         data_inicio: data.startDate,
         data_fim: data.endDate || null,
+        localizacao: 'A definir',
+        tipo: 'Reunião',
         responsavel: data.responsible,
         prioridade: data.priority,
         status: 'Pendente'
       };
-      const created = await api.agenda.create(payload);
-
-      const newEvent: EventItem = {
-        ...data,
-        id: created.id,
-        status: "Pendente",
-        checklist: (data.checklist || []).map((item, index) => ({
-          id: `chk-${index}-${Math.random()}`,
-          text: item.text,
-          done: false,
-        })),
-      };
       
-      setEvents((prev) => [...prev, newEvent]);
+      await api.post('/agenda', payload);
       toast.success("Evento criado com sucesso!");
+      fetchEvents();
       closeModal();
-    } catch (err: any) {
-      toast.error('Erro ao criar evento: ' + err.message);
+    } catch (error: any) {
+      console.error(error);
+      toast.error(error.message || "Erro ao criar evento");
     }
   };
 
@@ -135,35 +145,40 @@ export default function AgendaPage() {
 
   const updateEventStatus = async (id: string, status: "Realizado" | "Cancelado") => {
     try {
-      await api.agenda.update(id, { status });
-      setEvents(events.map(ev => ev.id === id ? { ...ev, status } : ev));
+      await api.put(`/agenda/${id}`, { status });
       if (status === "Realizado") toast.success("Evento marcado como realizado!");
       if (status === "Cancelado") toast("Evento cancelado", { icon: "⚠️" });
-    } catch (err: any) {
-      toast.error('Erro ao atualizar status: ' + err.message);
+      fetchEvents();
+    } catch (error) {
+      toast.error("Erro ao atualizar status");
     }
   };
 
   const deleteEvent = async (id: string) => {
     try {
-      await api.agenda.remove(id);
-      setEvents(events.filter(ev => ev.id !== id));
+      await api.delete(`/agenda/${id}`);;
       toast.success("Evento excluído!");
-    } catch (err: any) {
-      toast.error('Erro ao excluir evento: ' + err.message);
+      fetchEvents();
+    } catch (error) {
+      toast.error("Erro ao excluir evento");
     }
   };
 
-  const toggleChecklistItem = (eventId: string, checklistId: string) => {
-    setEvents(events.map(ev => {
-      if (ev.id !== eventId) return ev;
-      return {
-        ...ev,
-        checklist: ev.checklist.map(item => 
-          item.id === checklistId ? { ...item, done: !item.done } : item
-        )
-      };
-    }));
+  const toggleChecklistItem = async (eventId: string, checklistId: string) => {
+    const event = events.find(ev => ev.id === eventId);
+    if (!event) return;
+    
+    const updatedChecklist = event.checklist.map(item => 
+      item.id === checklistId ? { ...item, done: !item.done } : item
+    );
+    
+    try {
+      const newDesc = event.description + '\n\n---CHECKLIST---\n' + JSON.stringify(updatedChecklist);
+      await api.put(`/agenda/${eventId}`, { descricao: newDesc });
+      fetchEvents();
+    } catch (error) {
+      toast.error("Erro ao atualizar checklist");
+    }
   };
 
   const sortedEvents = [...events].sort((a, b) => {
@@ -193,7 +208,16 @@ export default function AgendaPage() {
 
       <div className="space-y-4">
         <AnimatePresence>
-          {sortedEvents.length === 0 ? (
+          {isLoading ? (
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="text-center py-12 bg-white dark:bg-slate-900 rounded-xl border border-dashed border-slate-300"
+            >
+              <h3 className="text-lg font-medium text-slate-700 dark:text-slate-200">Carregando eventos...</h3>
+            </motion.div>
+          ) : sortedEvents.length === 0 ? (
             <motion.div 
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}

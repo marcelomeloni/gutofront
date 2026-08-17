@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { api } from "@/lib/api";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
@@ -8,7 +9,6 @@ import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { motion, AnimatePresence } from "framer-motion";
 import toast, { Toaster } from "react-hot-toast";
-import { api } from "@/lib/api";
 import {
   Package,
   Toolbox,
@@ -77,53 +77,39 @@ export default function EstoquePage() {
   const [activeTab, setActiveTab] = useState<'fisico' | 'kits'>('fisico');
   
   const [items, setItems] = useState<EstoqueItem[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  const fetchItems = async () => {
+    try {
+      setIsLoading(true);
+      const res = await api.get('/estoque');
+      setItems(res || []);
+    } catch (error) {
+      toast.error("Erro ao carregar estoque");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchItems();
+  }, []);
 
   const [kits, setKits] = useState<KitItem[]>([
     {
       id: "k1",
       nome: "Kit Caminhada Padrão",
       descricao: "Material básico para caminhadas matinais",
-      materiais: []
+      materiais: [
+        { itemId: "i1", qtd: 500 }
+      ]
     }
   ]);
 
-  const [historico, setHistorico] = useState<Movimentacao[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    const fetchData = async () => {
-      try {
-        const [itemsData, movData] = await Promise.all([
-          api.estoque.getAll(),
-          api.estoque.movimentacoes.getAll()
-        ]);
-        setItems(itemsData.map((i: any) => ({
-          id: i.id,
-          nome: i.nome,
-          categoria: i.tipo || i.categoria || 'Outros',
-          qtdAtual: i.quantidade_atual || 0,
-          qtdMin: i.quantidade_minima || 0,
-          unidade: i.unidade || 'un',
-          estado: i.estado || 'Novo',
-          valor: i.valor || 0
-        })));
-        setHistorico(movData.map((m: any) => ({
-          id: m.id,
-          itemId: m.item_id,
-          nomeItem: m.estoque_itens?.nome || 'Item',
-          tipo: m.tipo_movimentacao === 'Entrada' ? 'Entrada' : 'Saída',
-          qtd: m.quantidade,
-          data: m.created_at,
-          obs: m.observacao || ''
-        })));
-      } catch (err: any) {
-        toast.error('Erro ao carregar estoque: ' + err.message);
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchData();
-  }, []);
+  const [historico, setHistorico] = useState<Movimentacao[]>([
+    { id: "h1", itemId: "i1", nomeItem: "Santinhos Guto 45123", tipo: "Entrada", qtd: 20000, data: new Date().toISOString() },
+    { id: "h2", itemId: "i2", nomeItem: "Tripé de Apoio Grande", tipo: "Saída", qtd: 2, data: new Date(Date.now() - 86400000).toISOString() }
+  ]);
 
   const [modalItem, setModalItem] = useState(false);
   const [modalKit, setModalKit] = useState(false);
@@ -136,39 +122,26 @@ export default function EstoquePage() {
   const [kitMateriais, setKitMateriais] = useState<{itemId: string; qtd: number}[]>([]);
 
   const formItem = useForm<ItemForm>({
-    resolver: zodResolver(itemSchema),
+    resolver: zodResolver(itemSchema) as any,
     defaultValues: { qtdAtual: 0, qtdMin: 0, unidade: "un", estado: "Novo", valor: 0.00 }
   });
 
   const formKit = useForm<KitForm>({
-    resolver: zodResolver(kitSchema),
+    resolver: zodResolver(kitSchema) as any,
   });
 
   const formMov = useForm<MovimentacaoForm>({
-    resolver: zodResolver(movimentacaoSchema),
+    resolver: zodResolver(movimentacaoSchema) as any,
     defaultValues: { tipo: "Saída", qtd: 1 }
   });
 
   const onAddItem = async (data: ItemForm) => {
     try {
-      const res = await api.estoque.create({
-        nome: data.nome,
-        tipo: data.categoria, // mapped to tipo in DB per instructions (or categoria)
-        categoria: data.categoria,
-        quantidade_atual: data.qtdAtual,
-        quantidade_minima: data.qtdMin,
-        unidade: data.unidade,
-        estado: data.estado,
-        valor: data.valor || 0
-      });
-
-      const newItem = {
-        ...data,
-        id: res.id
-      };
+      const res = await api.post('/estoque', data);
+      const newItem = res.data;
       setItems(prev => [...prev, newItem]);
       
-      // If we add initial history on frontend only to reflect creation
+      // Add initial history
       if (data.qtdAtual > 0) {
         setHistorico(prev => [{ id: Math.random().toString(), itemId: newItem.id, nomeItem: newItem.nome, tipo: "Entrada", qtd: data.qtdAtual, data: new Date().toISOString() }, ...prev]);
       }
@@ -176,8 +149,8 @@ export default function EstoquePage() {
       toast.success("Item cadastrado no estoque!");
       setModalItem(false);
       formItem.reset();
-    } catch (err: any) {
-      toast.error('Erro ao cadastrar item: ' + err.message);
+    } catch (error) {
+      toast.error("Erro ao cadastrar item");
     }
   };
 
@@ -207,21 +180,16 @@ export default function EstoquePage() {
       return;
     }
 
+    const newQtd = data.tipo === "Entrada" 
+      ? selectedItem.qtdAtual + data.qtd 
+      : selectedItem.qtdAtual - data.qtd;
+
     try {
-      const res = await api.estoque.movimentar(selectedItem.id, {
-        tipo_movimentacao: data.tipo,
-        quantidade: data.qtd,
-        observacao: data.observacao
-      });
-
-      const newQtd = data.tipo === "Entrada" 
-        ? selectedItem.qtdAtual + data.qtd 
-        : selectedItem.qtdAtual - data.qtd;
-
+      await api.put(`/estoque/${selectedItem.id}`, { ...selectedItem, qtdAtual: newQtd });
       setItems(items.map(i => i.id === selectedItem.id ? { ...i, qtdAtual: newQtd } : i));
 
       setHistorico(prev => [{
-        id: res.id || Math.random().toString(),
+        id: Math.random().toString(),
         itemId: selectedItem.id,
         nomeItem: selectedItem.nome,
         tipo: data.tipo,
@@ -231,18 +199,18 @@ export default function EstoquePage() {
 
       toast.success(`Movimentação de ${data.tipo.toLowerCase()} registrada com sucesso!`);
       setModalMov(false);
-    } catch (err: any) {
-      toast.error('Erro ao movimentar estoque: ' + err.message);
+    } catch (error) {
+      toast.error("Erro ao movimentar estoque");
     }
   };
 
   const deleteItem = async (id: string) => {
     try {
-      await api.estoque.remove(id);
+      await api.delete(`/estoque/${id}`);
       setItems(items.filter(i => i.id !== id));
       toast.success("Item excluído do estoque");
-    } catch (err: any) {
-      toast.error('Erro ao excluir item: ' + err.message);
+    } catch (error) {
+      toast.error("Erro ao excluir item");
     }
   };
 
@@ -264,9 +232,9 @@ export default function EstoquePage() {
   };
 
   const getStatusSaldo = (atual: number, min: number) => {
-    if (atual === 0) return { label: "Esgotado", color: "bg-red-100 text-red-700 border-red-200 dark:bg-red-500/20 dark:text-red-400 dark:border-red-500/20", icon: WarningCircle };
-    if (atual <= min) return { label: "Estoque Baixo", color: "bg-orange-100 text-orange-700 border-orange-200 dark:bg-orange-500/20 dark:text-orange-400 dark:border-orange-500/20", icon: WarningCircle };
-    return { label: "Saudável", color: "bg-green-100 text-green-700 border-green-200 dark:bg-green-500/20 dark:text-green-400 dark:border-green-500/20", icon: CheckCircle };
+    if (atual === 0) return { label: "Esgotado", color: "bg-red-100 text-red-700 border-red-200", icon: WarningCircle };
+    if (atual <= min) return { label: "Estoque Baixo", color: "bg-orange-100 text-orange-700 border-orange-200", icon: WarningCircle };
+    return { label: "Saudável", color: "bg-green-100 text-green-700 border-green-200", icon: CheckCircle };
   };
 
   return (
@@ -278,7 +246,7 @@ export default function EstoquePage() {
 
       {/* Tabs & Actions */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white dark:bg-slate-900 p-2 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm sticky top-0 z-10">
-        <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-lg w-full md:w-auto">
+        <div className="flex bg-slate-100 p-1 rounded-lg w-full md:w-auto">
           <button 
             onClick={() => setActiveTab('fisico')}
             className={`flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-md font-medium text-sm transition-all ${activeTab === 'fisico' ? 'bg-white dark:bg-slate-900 text-brand shadow-sm' : 'text-slate-600 dark:text-slate-300 hover:text-slate-800 dark:text-white'}`}
@@ -435,14 +403,14 @@ export default function EstoquePage() {
                           {kit.descricao && <p className="text-sm text-slate-600 dark:text-slate-300 mb-4">{kit.descricao}</p>}
                           
                           <div className="mt-auto bg-white dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden">
-                            <div className="bg-slate-100 dark:bg-slate-800 px-3 py-1.5 text-xs font-bold text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-700">Itens Inclusos</div>
+                            <div className="bg-slate-100 px-3 py-1.5 text-xs font-bold text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-700">Itens Inclusos</div>
                             <ul className="divide-y divide-slate-100">
                               {kit.materiais.map(m => {
                                 const itemRef = items.find(i => i.id === m.itemId);
                                 return (
                                   <li key={m.itemId} className="flex justify-between items-center p-3 text-sm">
                                     <span className="font-medium text-slate-700 dark:text-slate-200 truncate pr-4">{itemRef?.nome || "Item excluído"}</span>
-                                    <span className="font-bold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-700 px-2 py-0.5 rounded shrink-0">{m.qtd} {itemRef?.unidade || "un"}</span>
+                                    <span className="font-bold text-slate-600 dark:text-slate-300 bg-slate-100 px-2 py-0.5 rounded shrink-0">{m.qtd} {itemRef?.unidade || "un"}</span>
                                   </li>
                                 )
                               })}
@@ -472,7 +440,7 @@ export default function EstoquePage() {
               historico.map(hist => (
                 <div key={hist.id} className="flex gap-3 items-start group">
                   <div className={`mt-0.5 w-8 h-8 rounded-full flex items-center justify-center shrink-0 border ${
-                    hist.tipo === 'Entrada' ? 'bg-green-50 border-green-200 text-green-600 dark:bg-green-500/20 dark:text-green-400 dark:border-green-500/20' : 'bg-orange-50 border-orange-200 text-orange-600 dark:bg-orange-500/20 dark:text-orange-400 dark:border-orange-500/20'
+                    hist.tipo === 'Entrada' ? 'bg-green-50 border-green-200 text-green-600' : 'bg-orange-50 border-orange-200 text-orange-600'
                   }`}>
                     {hist.tipo === 'Entrada' ? <TrendUp size={16} weight="bold" /> : <TrendDown size={16} weight="bold" />}
                   </div>
@@ -511,7 +479,7 @@ export default function EstoquePage() {
                 </button>
               </div>
 
-              <form onSubmit={formItem.handleSubmit(onAddItem)} className="p-6 space-y-5">
+              <form onSubmit={formItem.handleSubmit(onAddItem as any)} className="p-6 space-y-5">
                 <div className="space-y-2">
                   <label className="text-sm font-bold text-slate-700 dark:text-slate-200">Nome do Item*</label>
                   <input 
@@ -713,7 +681,7 @@ export default function EstoquePage() {
                 </button>
               </div>
 
-              <form onSubmit={formMov.handleSubmit(onMovimentar)} className="p-6 space-y-5">
+              <form onSubmit={formMov.handleSubmit(onMovimentar as any)} className="p-6 space-y-5">
                 
                 <div className="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-3 flex justify-between items-center">
                   <span className="text-sm text-slate-600 dark:text-slate-300 font-medium">Estoque Atual:</span>

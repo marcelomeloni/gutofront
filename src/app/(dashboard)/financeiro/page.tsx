@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { api } from "@/lib/api";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
@@ -26,7 +27,6 @@ import {
   Bank,
   CheckCircle
 } from "@phosphor-icons/react";
-import { api } from "@/lib/api";
 
 // --- Schemas ---
 
@@ -50,39 +50,30 @@ interface FinanceiroItem extends FinanceiroForm {
 
 export default function FinanceiroPage() {
   const [registros, setRegistros] = useState<FinanceiroItem[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [filterTipo, setFilterTipo] = useState("");
   const [filterStatus, setFilterStatus] = useState("");
 
+  const fetchFinanceiro = async () => {
+    try {
+      setIsLoading(true);
+      const data = await api.get('/financeiro');
+      setRegistros(data);
+    } catch (error) {
+      toast.error('Erro ao carregar registros financeiros');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   useEffect(() => {
-    const fetchFinanceiro = async () => {
-      try {
-        const data = await api.financeiro.getAll();
-        setRegistros(data.map((r: any) => ({
-          id: r.id,
-          tipo: r.tipo || 'Receita (Entrada)',
-          categoria: r.categoria || '',
-          valor: typeof r.valor === 'number' ? r.valor : parseFloat(r.valor) || 0,
-          data: r.data_transacao ? r.data_transacao.split('T')[0] : '',
-          nome: r.descricao || '',
-          cpfCnpj: r.cpfCnpj || '00000000000',
-          meio: r.meio || 'Pix',
-          observacoes: r.observacoes || '',
-          status: r.status || 'Pendente'
-        })));
-      } catch (err: any) {
-        toast.error('Erro ao carregar financeiro: ' + err.message);
-      } finally {
-        setLoading(false);
-      }
-    };
     fetchFinanceiro();
   }, []);
 
   const form = useForm<FinanceiroForm>({
-    resolver: zodResolver(financeiroSchema),
+    resolver: zodResolver(financeiroSchema) as any,
     defaultValues: {
       tipo: "Receita (Entrada)",
       categoria: "Doação financeira de pessoa física",
@@ -95,49 +86,40 @@ export default function FinanceiroPage() {
 
   const onSubmit = async (data: FinanceiroForm) => {
     try {
-      const payload = {
-        tipo: data.tipo,
-        categoria: data.categoria,
-        valor: data.valor,
-        descricao: data.nome,
-        data_transacao: data.data,
-        status: 'Pendente',
-      };
-      const created = await api.financeiro.create(payload);
-      
-      const newItem: FinanceiroItem = {
+      setIsLoading(true);
+      const newItem = {
         ...data,
-        id: created.id,
         status: "Pendente"
       };
-      
-      setRegistros([newItem, ...registros]);
+      await api.post('/financeiro', newItem);
       toast.success("Registro adicionado com sucesso!");
       setIsModalOpen(false);
       form.reset();
-    } catch (err: any) {
-      toast.error('Erro ao criar registro: ' + err.message);
+      fetchFinanceiro();
+    } catch (error) {
+      toast.error('Erro ao adicionar registro');
+    } finally {
+      setIsLoading(false);
     }
   };
 
   const deleteRegistro = async (id: string) => {
     try {
-      await api.financeiro.remove(id);
-      setRegistros(registros.filter(r => r.id !== id));
+      await api.delete(`/financeiro/${id}`);
       toast.success("Registro excluído");
-    } catch (err: any) {
-      toast.error('Erro ao excluir registro: ' + err.message);
+      fetchFinanceiro();
+    } catch (error) {
+      toast.error('Erro ao excluir registro');
     }
   };
 
   const updateStatus = async (id: string, status: FinanceiroItem["status"]) => {
     try {
-      // Assuming updateStatus exists on api.financeiro
-      await api.financeiro.update(id, { status });
-      setRegistros(registros.map(r => r.id === id ? { ...r, status } : r));
+      await api.put(`/financeiro/${id}`, { status });
       toast.success(`Status atualizado para ${status}`);
-    } catch (err: any) {
-      toast.error('Erro ao atualizar status: ' + err.message);
+      fetchFinanceiro();
+    } catch (error) {
+      toast.error('Erro ao atualizar status');
     }
   };
 
@@ -388,7 +370,7 @@ export default function FinanceiroPage() {
                 </button>
               </div>
 
-              <form onSubmit={form.handleSubmit(onSubmit)} className="p-6 space-y-6">
+              <form onSubmit={form.handleSubmit(onSubmit as any)} className="p-6 space-y-5">
                 
                 <div className="space-y-2">
                   <label className="text-sm font-bold text-slate-700 dark:text-slate-200">Tipo da Movimentação*</label>

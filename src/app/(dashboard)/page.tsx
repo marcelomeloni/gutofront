@@ -3,14 +3,12 @@
 import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import { api } from "@/lib/api";
-import toast from "react-hot-toast";
+import { format, isToday, parseISO, subDays, isAfter } from "date-fns";
 import {
   UsersThree,
   CurrencyCircleDollar,
   ClipboardText,
   CalendarBlank,
-  ArrowUpRight,
-  ArrowDownRight,
   MapPin,
   Clock,
   WarningCircle,
@@ -20,57 +18,98 @@ import {
 import Link from "next/link";
 
 export default function Home() {
-  const [loading, setLoading] = useState(true);
-  const [kpiData, setKpiData] = useState({ totalLeads: 0, saldo: 0, demandasAbertas: 0, eventosHoje: 0 });
+  const [metrics, setMetrics] = useState({
+    leadsCount: "0",
+    saldo: "R$ 0,00",
+    demandasAbertas: "0",
+    eventosHoje: "0"
+  });
+
+  const [chartData, setChartData] = useState([
+    { day: "Seg", value: 0 },
+    { day: "Ter", value: 0 },
+    { day: "Qua", value: 0 },
+    { day: "Qui", value: 0 },
+    { day: "Sex", value: 0 },
+    { day: "Sáb", value: 0 },
+    { day: "Dom", value: 0 },
+  ]);
+
   const [agendaHoje, setAgendaHoje] = useState<any[]>([]);
   const [demandasCriticas, setDemandasCriticas] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    const fetchDashboard = async () => {
+    async function loadDashboardData() {
       try {
-        const [leads, financeiro, demandas, agenda] = await Promise.all([
-          api.leads.getAll(),
-          api.financeiro.getAll(),
-          api.demandas.getAll(),
-          api.agenda.getAll()
+        const [leads, financas, demandas, agenda] = await Promise.all([
+          api.get('/leads').catch(() => []),
+          api.get('/financeiro').catch(() => []),
+          api.get('/demandas').catch(() => []),
+          api.get('/agenda').catch(() => [])
         ]);
-        
-        // Calculate KPIs from real data
-        const totalLeads = leads.length;
-        const receitas = financeiro.filter((f: any) => f.tipo === 'Receita').reduce((sum: number, f: any) => sum + (parseFloat(f.valor) || 0), 0);
-        const despesas = financeiro.filter((f: any) => f.tipo === 'Despesa').reduce((sum: number, f: any) => sum + (parseFloat(f.valor) || 0), 0);
-        const saldo = receitas - despesas;
-        const demandasAbertas = demandas.filter((d: any) => d.status !== 'Resolvida').length;
-        
-        // Today's events
-        const today = new Date().toISOString().split('T')[0];
-        const eventosHoje = agenda.filter((e: any) => {
-          const eventDate = e.data_inicio?.split('T')[0];
-          return eventDate === today;
+
+        // 1. Leads Convertidos
+        const leadsArray = Array.isArray(leads) ? leads : [];
+        const leadsCount = leadsArray.length;
+
+        // Chart Data (Last 7 days leads)
+        const days = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
+        const last7Days = Array.from({length: 7}).map((_, i) => {
+          const d = subDays(new Date(), 6 - i);
+          return { day: days[d.getDay()], value: 0, date: d };
         });
-        
-        // Recent critical demandas (last 24h)
-        const oneDayAgo = new Date(Date.now() - 86400000).toISOString();
-        const demandasRecentes = demandas.filter((d: any) => d.created_at > oneDayAgo).slice(0, 3);
-        
-        setKpiData({ totalLeads, saldo, demandasAbertas, eventosHoje: eventosHoje.length });
-        setAgendaHoje(eventosHoje);
-        setDemandasCriticas(demandasRecentes);
-      } catch (err: any) {
-        toast.error('Erro ao carregar dashboard: ' + err.message);
+
+        leadsArray.forEach(lead => {
+          if (!lead.created_at) return;
+          const leadDate = new Date(lead.created_at);
+          const sevenDaysAgo = subDays(new Date(), 7);
+          if (isAfter(leadDate, sevenDaysAgo)) {
+            const dayName = days[leadDate.getDay()];
+            const bucket = last7Days.find(d => d.day === dayName);
+            if (bucket) bucket.value++;
+          }
+        });
+        setChartData(last7Days);
+
+        // 2. Saldo
+        const financasArray = Array.isArray(financas) ? financas : [];
+        const saldo = financasArray.reduce((acc, curr) => {
+          if (curr.tipo === "Receita (Entrada)" || curr.tipo === "Entrada") return acc + Number(curr.valor || 0);
+          return acc - Number(curr.valor || 0);
+        }, 0);
+
+        // 3. Demandas
+        const demandasArray = Array.isArray(demandas) ? demandas : [];
+        const abertas = demandasArray.filter(d => d.status !== "Resolvida").length;
+        setDemandasCriticas(demandasArray.slice(0, 3)); // Pegar últimas 3
+
+        // 4. Agenda
+        const agendaArray = Array.isArray(agenda) ? agenda : [];
+        const hojeEvents = agendaArray.filter(a => a.data_inicio && isToday(parseISO(a.data_inicio)));
+        setAgendaHoje(hojeEvents);
+
+        setMetrics({
+          leadsCount: leadsCount.toString(),
+          saldo: `R$ ${saldo.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`,
+          demandasAbertas: abertas.toString(),
+          eventosHoje: hojeEvents.length.toString()
+        });
+
+      } catch (error) {
+        console.error("Erro ao carregar dashboard:", error);
       } finally {
-        setLoading(false);
+        setIsLoading(false);
       }
-    };
-    fetchDashboard();
+    }
+    loadDashboardData();
   }, []);
 
-  // Mock Data para o Dashboard
   const kpis = [
     {
       id: 1,
       title: "Leads Convertidos",
-      value: kpiData.totalLeads.toString(),
+      value: metrics.leadsCount,
       change: "+12%",
       isPositive: true,
       icon: UsersThree,
@@ -82,7 +121,7 @@ export default function Home() {
     {
       id: 2,
       title: "Saldo em Caixa",
-      value: `R$ ${kpiData.saldo.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+      value: metrics.saldo,
       change: "-4%",
       isPositive: false,
       icon: CurrencyCircleDollar,
@@ -94,7 +133,7 @@ export default function Home() {
     {
       id: 3,
       title: "Demandas Abertas",
-      value: kpiData.demandasAbertas.toString(),
+      value: metrics.demandasAbertas,
       change: "Urgente",
       isPositive: false,
       icon: ClipboardText,
@@ -106,7 +145,7 @@ export default function Home() {
     {
       id: 4,
       title: "Eventos Hoje",
-      value: kpiData.eventosHoje.toString(),
+      value: metrics.eventosHoje,
       change: "Agendados",
       isPositive: true,
       icon: CalendarBlank,
@@ -117,16 +156,11 @@ export default function Home() {
     }
   ];
 
-  const chartData = [
-    { day: "Seg", value: 35 },
-    { day: "Ter", value: 45 },
-    { day: "Qua", value: 30 },
-    { day: "Qui", value: 65 },
-    { day: "Sex", value: 85 },
-    { day: "Sáb", value: 120 },
-    { day: "Dom", value: 90 },
-  ];
-  const maxChartValue = Math.max(...chartData.map(d => d.value));
+  const maxChartValue = Math.max(...chartData.map(d => d.value), 10); // Minimum 10 to avoid dividing by zero
+
+  if (isLoading) {
+    return <div className="p-8 text-center text-slate-500">Carregando painel dinâmico...</div>;
+  }
 
   return (
     <div className="max-w-[1400px] w-full mx-auto space-y-6 pb-12">
@@ -221,34 +255,31 @@ export default function Home() {
             transition={{ delay: 0.5 }}
             className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden"
           >
-            <div className="p-5 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-slate-50/50 dark:bg-slate-900/50">
+            <div className="p-5 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-slate-50/50">
               <div className="flex items-center gap-2">
                 <WarningCircle size={20} weight="fill" className="text-orange-500" />
-                <h2 className="text-lg font-bold text-slate-800 dark:text-white">Demandas Críticas (Últimas 24h)</h2>
+                <h2 className="text-lg font-bold text-slate-800 dark:text-white">Últimas Demandas Registradas</h2>
               </div>
               <Link href="/demandas" className="text-sm font-bold text-brand hover:text-brand-hover">Ver todas</Link>
             </div>
             
             <div className="divide-y divide-slate-100">
-              {demandasCriticas.length === 0 ? (
-                <p className="p-5 text-sm text-slate-500 text-center">Nenhuma demanda crítica recente.</p>
-              ) : (
-                demandasCriticas.map((demanda, i) => (
-                  <div key={demanda.id || i} className="p-5 hover:bg-slate-50 dark:bg-slate-800 transition-colors flex items-start gap-4">
-                    <div className="w-10 h-10 rounded-full bg-orange-100 dark:bg-orange-500/20 text-orange-600 dark:text-orange-400 flex items-center justify-center shrink-0">
-                      <MapPin size={20} weight="fill" />
-                    </div>
-                    <div>
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className="text-xs font-bold uppercase tracking-wider text-orange-600 dark:text-orange-400 bg-orange-50 dark:bg-orange-500/10 px-2 py-0.5 rounded border border-orange-100 dark:border-orange-500/20">{demanda.bairro || 'Sem Bairro'}</span>
-                        <span className="text-xs font-bold text-slate-400">{demanda.categoria}</span>
-                      </div>
-                      <p className="text-sm font-medium text-slate-800 dark:text-white mb-1">{demanda.descricao}</p>
-                      <p className="text-xs text-slate-500 dark:text-slate-400">Reportado por <span className="font-bold text-slate-700 dark:text-slate-200">{demanda.cidadao_nome || 'Desconhecido'}</span></p>
-                    </div>
+              {demandasCriticas.length === 0 && <div className="p-5 text-slate-500 text-sm">Nenhuma demanda registrada ainda.</div>}
+              {demandasCriticas.map((demanda, i) => (
+                <div key={i} className="p-5 hover:bg-slate-50 dark:bg-slate-800 transition-colors flex items-start gap-4">
+                  <div className="w-10 h-10 rounded-full bg-orange-100 text-orange-600 flex items-center justify-center shrink-0">
+                    <MapPin size={20} weight="fill" />
                   </div>
-                ))
-              )}
+                  <div>
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-xs font-bold uppercase tracking-wider text-orange-600 bg-orange-50 px-2 py-0.5 rounded border border-orange-100">{demanda.bairro || 'Sem Bairro'}</span>
+                      <span className="text-xs font-bold text-slate-400">{demanda.categoria}</span>
+                    </div>
+                    <p className="text-sm font-medium text-slate-800 dark:text-white mb-1">{demanda.descricao}</p>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">Reportado por <span className="font-bold text-slate-700 dark:text-slate-200">{demanda.cidadao_nome || 'Anônimo'}</span></p>
+                  </div>
+                </div>
+              ))}
             </div>
           </motion.div>
         </div>
@@ -270,29 +301,25 @@ export default function Home() {
               </h2>
             </div>
             <div className="p-5 space-y-6 relative">
-              {/* Linha do tempo visual */}
-              <div className="absolute left-[31px] top-8 bottom-8 w-0.5 bg-slate-100 z-0"></div>
+              {agendaHoje.length === 0 && <div className="text-slate-500 text-sm">Sem eventos programados para hoje.</div>}
+              {agendaHoje.length > 0 && <div className="absolute left-[31px] top-8 bottom-8 w-0.5 bg-slate-100 z-0"></div>}
               
-              {agendaHoje.length === 0 ? (
-                <p className="text-sm text-slate-500 text-center py-4">Nenhum evento hoje.</p>
-              ) : (
-                agendaHoje.map((evento) => (
-                  <div key={evento.id} className="relative z-10 flex gap-4">
-                    <div className="flex flex-col items-center">
-                      <div className="w-3 h-3 rounded-full bg-purple-500 ring-4 ring-white mb-1"></div>
-                      <span className="text-xs font-bold text-slate-500 dark:text-slate-400">{evento.data_inicio ? new Date(evento.data_inicio).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : '--:--'}</span>
-                    </div>
-                    <div className="flex-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-3 hover:border-purple-300 transition-colors cursor-pointer group">
-                      <h4 className="text-sm font-bold text-slate-800 dark:text-white group-hover:text-purple-700 transition-colors">{evento.titulo}</h4>
-                      <div className="flex items-center gap-1 text-xs text-slate-500 dark:text-slate-400 mt-1">
-                        <MapPin size={14} /> {evento.local || 'Local não informado'}
-                      </div>
+              {agendaHoje.map((evento) => (
+                <div key={evento.id} className="relative z-10 flex gap-4">
+                  <div className="flex flex-col items-center">
+                    <div className="w-3 h-3 rounded-full bg-purple-500 ring-4 ring-white mb-1"></div>
+                    <span className="text-xs font-bold text-slate-500 dark:text-slate-400">{format(parseISO(evento.data_inicio), "HH:mm")}</span>
+                  </div>
+                  <div className="flex-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-3 hover:border-purple-300 transition-colors cursor-pointer group">
+                    <h4 className="text-sm font-bold text-slate-800 dark:text-white group-hover:text-purple-700 transition-colors">{evento.titulo}</h4>
+                    <div className="flex items-center gap-1 text-xs text-slate-500 dark:text-slate-400 mt-1">
+                      <MapPin size={14} /> {evento.localizacao}
                     </div>
                   </div>
-                ))
-              )}
+                </div>
+              ))}
             </div>
-            <div className="p-4 border-t border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/50 rounded-b-xl text-center">
+            <div className="p-4 border-t border-slate-100 dark:border-slate-800 bg-slate-50/50 rounded-b-xl text-center">
               <Link href="/agenda" className="text-sm font-bold text-brand hover:text-brand-hover">Ver Calendário Completo</Link>
             </div>
           </motion.div>
@@ -312,12 +339,12 @@ export default function Home() {
                 <Megaphone size={20} weight="fill" />
                 <span className="text-sm font-bold uppercase tracking-wider">Aviso da Coordenação</span>
               </div>
-              <h3 className="text-lg font-bold mb-2">Reunião de Alinhamento Semanal</h3>
+              <h3 className="text-lg font-bold mb-2">Sistema Atualizado</h3>
               <p className="text-blue-100 text-sm mb-4">
-                Lembrete a toda equipe: amanhã (Segunda) às 08h teremos nossa reunião de balanço da semana e definição de metas. Não atrasem.
+                Agora o dashboard carrega todos os dados em tempo real diretamente do banco de dados!
               </p>
               <div className="flex items-center gap-2 text-xs font-medium text-blue-200 bg-black/20 w-fit px-3 py-1.5 rounded-full backdrop-blur-sm">
-                <Clock size={14} /> Postado há 2 horas
+                <Clock size={14} /> Agora
               </div>
             </div>
           </motion.div>
@@ -327,6 +354,3 @@ export default function Home() {
     </div>
   );
 }
-
-
-
