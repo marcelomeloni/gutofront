@@ -34,7 +34,6 @@ type Priority = 'Baixa' | 'Normal' | 'Alta';
 interface Bairro {
   id: string;
   name: string;
-  region: string;
   priority: Priority;
   status: BairroStatus;
   contacts: number;
@@ -48,7 +47,6 @@ interface Bairro {
 
 const bairroSchema = z.object({
   nome: z.string().min(2, "Nome do bairro é obrigatório"),
-  regiao: z.string().optional(),
   prioridade: z.enum(["Baixa", "Normal", "Alta"]),
   status: z.enum(["Não Iniciado", "Em Mapeamento", "Em Aproximação", "Ativo", "Consolidado", "Suspenso"]),
   meta: z.number().min(0).optional(),
@@ -59,7 +57,7 @@ type BairroForm = z.infer<typeof bairroSchema>;
 
 const municipioSchema = z.object({
   nome: z.string().min(2, "Nome do município é obrigatório"),
-  regiao: z.string().optional(),
+  estado: z.string().optional(),
 });
 
 type MunicipioForm = z.infer<typeof municipioSchema>;
@@ -69,7 +67,6 @@ function normalizeBairro(b: any): Bairro {
   return {
     id: b.id,
     name: b.nome || b.name || "",
-    region: b.regiao || b.region || "",
     priority: (b.prioridade || b.priority || "Normal") as Priority,
     status: (b.status || "Não Iniciado") as BairroStatus,
     contacts: b.contatos_base || b.contacts || 0,
@@ -155,7 +152,6 @@ export default function BairrosPage() {
     try {
       const payload = {
         nome: data.nome,
-        regiao: data.regiao || null,
         prioridade: data.prioridade,
         status: data.status,
         meta: data.meta || 0,
@@ -174,18 +170,11 @@ export default function BairrosPage() {
 
   const onAddMunicipio = async (data: MunicipioForm) => {
     try {
-      // Município is registered as a bairro with a special region marker
       const payload = {
         nome: data.nome,
-        regiao: data.regiao || "Município",
-        prioridade: "Normal",
-        status: "Não Iniciado",
-        meta: 0,
-        contatos_base: 0,
-        lideres: 0,
+        estado: data.estado || "SP",
       };
-      const result = await api.post('/bairros', payload);
-      setBairros(prev => [normalizeBairro(result), ...prev]);
+      await api.post('/municipios', payload);
       toast.success("Município cadastrado com sucesso!");
       setModalMunicipio(false);
       formMunicipio.reset();
@@ -373,9 +362,6 @@ export default function BairrosPage() {
                     <div className="flex justify-between items-start mb-3">
                       <div>
                         <h3 className="text-lg font-bold text-slate-800 dark:text-white leading-tight">{bairro.name}</h3>
-                        <p className="text-sm text-slate-500 dark:text-slate-400 flex items-center gap-1 mt-1">
-                          <MapPin size={14} /> Região: {bairro.region || "Não definida"}
-                        </p>
                       </div>
                       <span className={`px-2.5 py-1 text-xs font-bold rounded-full border ${getStatusColor(bairro.status)}`}>
                         {bairro.status}
@@ -449,7 +435,7 @@ export default function BairrosPage() {
             <table className="w-full text-left text-sm text-slate-600 dark:text-slate-300">
               <thead className="bg-slate-50 dark:bg-slate-800 text-xs uppercase font-bold text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-700">
                 <tr>
-                  <th className="px-6 py-4">Bairro e Região</th>
+                  <th className="px-6 py-4">Bairro</th>
                   <th className="px-6 py-4">Status e Prioridade</th>
                   <th className="px-6 py-4">Líderes e Contatos</th>
                   <th className="px-6 py-4">Meta</th>
@@ -464,7 +450,6 @@ export default function BairrosPage() {
                     <motion.tr layout key={bairro.id} className="hover:bg-slate-50/50 transition-colors">
                       <td className="px-6 py-4">
                         <p className="font-bold text-slate-800 dark:text-white">{bairro.name}</p>
-                        <p className="text-slate-500 dark:text-slate-400 text-xs mt-0.5">{bairro.region}</p>
                       </td>
                       <td className="px-6 py-4 space-y-2">
                         <div>
@@ -558,18 +543,6 @@ export default function BairrosPage() {
                   {formBairro.formState.errors.nome && <p className="text-red-500 text-xs">{formBairro.formState.errors.nome.message}</p>}
                 </div>
 
-                <div className="space-y-2">
-                  <label className="text-sm font-bold text-slate-700 dark:text-slate-200 flex justify-between">
-                    <span>Região / Zona</span>
-                    <span className="text-slate-400 font-normal text-xs">Opcional</span>
-                  </label>
-                  <input
-                    {...formBairro.register("regiao")}
-                    placeholder="Ex: Zona Norte, Centro-Oeste..."
-                    className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand/20 focus:border-brand text-slate-800 dark:text-white"
-                  />
-                </div>
-
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <label className="text-sm font-bold text-slate-700 dark:text-slate-200">Prioridade*</label>
@@ -648,7 +621,7 @@ export default function BairrosPage() {
                     <span className="text-slate-400 font-normal text-xs">Opcional</span>
                   </label>
                   <input
-                    {...formMunicipio.register("regiao")}
+                    {...formMunicipio.register("estado")}
                     placeholder="Ex: SP, MG..."
                     className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand/20 focus:border-brand text-slate-800 dark:text-white"
                   />
