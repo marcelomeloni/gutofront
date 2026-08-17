@@ -40,8 +40,9 @@ const entrevistaSchema = z.object({
 
 type EntrevistaForm = z.infer<typeof entrevistaSchema>;
 
-interface EntrevistaItem extends EntrevistaForm {
+interface EntrevistaItem extends Omit<EntrevistaForm, 'data'> {
   id: string;
+  data: string | null;
 }
 
 const veiculoSchema = z.object({
@@ -55,6 +56,32 @@ type VeiculoForm = z.infer<typeof veiculoSchema>;
 
 interface VeiculoItem extends VeiculoForm {
   id: string;
+}
+
+// --- Helpers ---
+
+function safeDate(dateStr: string | null | undefined, formatStr: string): string {
+  if (!dateStr) return "Data não informada";
+  try {
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return "Data inválida";
+    return format(d, formatStr, { locale: ptBR });
+  } catch {
+    return "Data inválida";
+  }
+}
+
+// Normalize an entrevista from the API — backend may return either field name style
+function normalizeEntrevistaFrontend(e: any): EntrevistaItem {
+  return {
+    id: e.id,
+    veiculo: e.veiculo || e.veiculo_id || "Não informado",
+    pauta: e.pauta || "",
+    data: e.data || e.data_entrevista || null,
+    horario: e.horario || "",
+    status: e.status || "Pendente",
+    briefing: e.briefing || null,
+  } as EntrevistaItem;
 }
 
 // --- Component ---
@@ -74,7 +101,8 @@ export default function ImprensaPage() {
   const fetchEntrevistas = async () => {
     try {
       const data = await api.get('/imprensa');
-      setEntrevistas(Array.isArray(data) ? data : []);
+      const arr = Array.isArray(data) ? data : [];
+      setEntrevistas(arr.map(normalizeEntrevistaFrontend));
     } catch (error) {
       toast.error("Erro ao carregar entrevistas");
     }
@@ -109,7 +137,7 @@ export default function ImprensaPage() {
   const onAddEntrevista = async (data: EntrevistaForm) => {
     try {
       const novaEntrevista = await api.post('/imprensa', data);
-      setEntrevistas(prev => [novaEntrevista, ...prev]);
+      setEntrevistas(prev => [normalizeEntrevistaFrontend(novaEntrevista), ...prev]);
       toast.success("Entrevista agendada com sucesso!");
       setModalEntrevista(false);
       formEntrevista.reset();
@@ -142,7 +170,7 @@ export default function ImprensaPage() {
 
   const confirmEntrevista = async (id: string) => {
     try {
-      await api.put(`/imprensa/${id}`, { status: "Confirmada" });
+      const updated = await api.put(`/imprensa/${id}`, { status: "Confirmada" });
       setEntrevistas(entrevistas.map(e => e.id === id ? { ...e, status: "Confirmada" } : e));
       toast.success("Entrevista confirmada com sucesso!");
     } catch (error) {
@@ -231,7 +259,14 @@ export default function ImprensaPage() {
             ) : (
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                 <AnimatePresence>
-                  {entrevistas.sort((a, b) => new Date(a.data).getTime() - new Date(b.data).getTime()).map(entrevista => (
+                  {entrevistas
+                    .slice()
+                    .sort((a, b) => {
+                      const da = a.data ? new Date(a.data).getTime() : 0;
+                      const db = b.data ? new Date(b.data).getTime() : 0;
+                      return da - db;
+                    })
+                    .map(entrevista => (
                     <motion.div 
                       key={entrevista.id}
                       layout
@@ -256,7 +291,7 @@ export default function ImprensaPage() {
                       <div className="flex gap-4 mb-4">
                         <div className="flex items-center gap-1.5 text-sm text-slate-700 dark:text-slate-200 bg-slate-50 dark:bg-slate-800 px-3 py-1.5 rounded-lg border border-slate-100 dark:border-slate-800">
                           <CalendarBlank size={16} className="text-blue-500" />
-                          <span className="font-medium">{format(new Date(entrevista.data), "dd/MM/yyyy")}</span>
+                          <span className="font-medium">{safeDate(entrevista.data, "dd/MM/yyyy")}</span>
                         </div>
                         <div className="flex items-center gap-1.5 text-sm text-slate-700 dark:text-slate-200 bg-slate-50 dark:bg-slate-800 px-3 py-1.5 rounded-lg border border-slate-100 dark:border-slate-800">
                           <Clock size={16} className="text-orange-500" />
