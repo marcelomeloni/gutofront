@@ -29,7 +29,8 @@ const usuarioSchema = z.object({
   nome: z.string().min(2, "Nome é obrigatório"),
   email: z.string().email("E-mail inválido"),
   senha: z.string().min(6, "A senha deve ter no mínimo 6 caracteres"),
-  role: z.enum(["Admin", "Agenda", "Marketing", "Financeiro", "Operacional"]),
+  role: z.enum(["Admin", "Agenda", "Marketing", "Financeiro", "Operacional", "Colaborador"]),
+  municipio_id: z.string().optional(),
 });
 
 type UsuarioForm = z.infer<typeof usuarioSchema>;
@@ -37,6 +38,7 @@ type UsuarioForm = z.infer<typeof usuarioSchema>;
 interface UsuarioItem extends Omit<UsuarioForm, 'senha'> {
   id: string;
   status: "Ativo" | "Inativo";
+  municipios?: { nome: string };
 }
 
 const changePasswordSchema = z.object({
@@ -47,6 +49,7 @@ type ChangePasswordForm = z.infer<typeof changePasswordSchema>;
 
 export default function UsuariosPage() {
   const [usuarios, setUsuarios] = useState<UsuarioItem[]>([]);
+  const [municipios, setMunicipios] = useState<{id: string, nome: string}[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   const fetchUsuarios = async () => {
@@ -60,8 +63,16 @@ export default function UsuariosPage() {
     }
   };
 
+  const fetchMunicipios = async () => {
+    try {
+      const data = await api.get("/municipios");
+      setMunicipios(Array.isArray(data) ? data : []);
+    } catch (err) {}
+  };
+
   useEffect(() => {
     fetchUsuarios();
+    fetchMunicipios();
   }, []);
 
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -82,7 +93,7 @@ export default function UsuariosPage() {
 
   const onSubmit = async (data: UsuarioForm) => {
     try {
-      await api.post("/auth/register", { ...data, password: data.senha, role: data.role.toLowerCase() });
+      await api.post("/auth/register", { ...data, password: data.senha, role: data.role.toLowerCase(), municipio_id: data.municipio_id || null });
       toast.success("Usuário criado com sucesso!");
       fetchUsuarios();
       setIsModalOpen(false);
@@ -121,13 +132,13 @@ export default function UsuariosPage() {
 
   const openEditarModal = (user: UsuarioItem) => {
     setSelectedUser(user);
-    form.reset({ nome: user.nome, email: user.email, role: user.role, senha: "000000" });
+    form.reset({ nome: user.nome, email: user.email, role: user.role, senha: "000000", municipio_id: user.municipio_id || "" });
     setModalEditar(true);
   };
 
   const onEditSubmit = async (data: UsuarioForm) => {
     try {
-      await api.put(`/usuarios/${selectedUser?.id}`, { nome: data.nome, email: data.email, role: data.role.toLowerCase() });
+      await api.put(`/usuarios/${selectedUser?.id}`, { nome: data.nome, email: data.email, role: data.role.toLowerCase(), municipio_id: data.municipio_id || null });
       fetchUsuarios();
       toast.success("Usuário atualizado com sucesso!");
       setModalEditar(false);
@@ -177,6 +188,7 @@ export default function UsuariosPage() {
               <tr>
                 <th className="px-6 py-4">Usuário</th>
                 <th className="px-6 py-4">Nível de Acesso (Role)</th>
+                <th className="px-6 py-4">Município</th>
                 <th className="px-6 py-4">Status</th>
                 <th className="px-6 py-4 text-right">Ações</th>
               </tr>
@@ -220,6 +232,19 @@ export default function UsuariosPage() {
                             <RoleIcon size={16} />
                             {user.role}
                           </span>
+                        </td>
+
+                        <td className="px-6 py-4">
+                          <div className="flex items-center gap-1.5 text-sm text-slate-500">
+                            {user.municipios?.nome ? (
+                              <>
+                                <MapPin size={16} />
+                                {user.municipios.nome}
+                              </>
+                            ) : (
+                              <span className="italic text-slate-400">Sem município</span>
+                            )}
+                          </div>
                         </td>
 
                         <td className="px-6 py-4">
@@ -311,6 +336,16 @@ export default function UsuariosPage() {
                     <option value="Marketing">Marketing</option>
                     <option value="Financeiro">Financeiro</option>
                     <option value="Operacional">Operacional</option>
+                    <option value="Colaborador">Colaborador</option>
+                  </select>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-bold text-slate-700 dark:text-slate-200">Município / Cidade</label>
+                  <select {...form.register("municipio_id")} className="w-full px-4 py-2.5 bg-white dark:bg-slate-900 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand/20 font-medium text-slate-800 dark:text-white">
+                    <option value="">Nenhum (Admin Global ou não se aplica)</option>
+                    {municipios.map(m => (
+                      <option key={m.id} value={m.id}>{m.nome}</option>
+                    ))}
                   </select>
                 </div>
                 <div className="space-y-2">
@@ -404,6 +439,16 @@ export default function UsuariosPage() {
                     <option value="Marketing">Marketing</option>
                     <option value="Financeiro">Financeiro</option>
                     <option value="Operacional">Operacional</option>
+                    <option value="Colaborador">Colaborador</option>
+                  </select>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-bold text-slate-700 dark:text-slate-200">Município / Cidade</label>
+                  <select {...form.register("municipio_id")} className="w-full px-4 py-2.5 bg-white dark:bg-slate-900 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand/20 font-medium text-slate-800 dark:text-white">
+                    <option value="">Nenhum (Admin Global ou não se aplica)</option>
+                    {municipios.map(m => (
+                      <option key={m.id} value={m.id}>{m.nome}</option>
+                    ))}
                   </select>
                 </div>
                 <div className="pt-4 mt-2 border-t border-slate-100 dark:border-slate-800 flex justify-end gap-3 sticky bottom-0 bg-white dark:bg-slate-900">

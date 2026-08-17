@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { api } from "@/lib/api";
+import { useAuth } from "@/contexts/AuthContext";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { format, isPast, parseISO } from "date-fns";
@@ -50,6 +51,7 @@ const COLUNAS = ["A Fazer", "Em Progresso", "Em Revisão", "Concluída"] as cons
 type Coluna = typeof COLUNAS[number];
 
 export default function TarefasPage() {
+  const { user } = useAuth();
   const [tarefas, setTarefas] = useState<TarefaItem[]>([]);
   const [usuarios, setUsuarios] = useState<Usuario[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -159,13 +161,15 @@ export default function TarefasPage() {
       {/* Header */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 shrink-0">
         <div></div>
-        <button 
-          onClick={() => setIsModalOpen(true)}
-          className="flex items-center gap-2 bg-brand hover:bg-brand-hover text-black px-5 py-2.5 rounded-lg text-sm font-medium transition-colors shadow-sm"
-        >
-          <Plus size={18} weight="bold" />
-          Nova Tarefa
-        </button>
+        {user?.role === 'admin' && (
+          <button 
+            onClick={() => setIsModalOpen(true)}
+            className="flex items-center gap-2 bg-brand hover:bg-brand-hover text-black px-5 py-2.5 rounded-lg text-sm font-medium transition-colors shadow-sm"
+          >
+            <Plus size={18} weight="bold" />
+            Nova Tarefa
+          </button>
+        )}
       </div>
 
       {/* Kanban Board */}
@@ -213,14 +217,16 @@ export default function TarefasPage() {
                               </span>
                               
                               {/* Card Actions (Hover) */}
-                              <div className="flex items-center opacity-0 group-hover:opacity-100 transition-opacity">
-                                <button 
-                                  onClick={() => deleteTarefa(tarefa.id)}
-                                  className="text-slate-400 hover:text-red-500 p-1 rounded hover:bg-slate-50 dark:bg-slate-800 transition-colors"
-                                >
-                                  <Trash size={14} />
-                                </button>
-                              </div>
+                              {user?.role === 'admin' && (
+                                <div className="flex items-center opacity-0 group-hover:opacity-100 transition-opacity">
+                                  <button 
+                                    onClick={() => deleteTarefa(tarefa.id)}
+                                    className="text-slate-400 hover:text-red-500 p-1 rounded hover:bg-slate-50 dark:bg-slate-800 transition-colors"
+                                  >
+                                    <Trash size={14} />
+                                  </button>
+                                </div>
+                              )}
                             </div>
                             
                             <h4 className="font-bold text-slate-800 dark:text-white text-sm leading-tight mb-1">{tarefa.titulo}</h4>

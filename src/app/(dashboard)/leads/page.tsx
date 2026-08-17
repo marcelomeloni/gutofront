@@ -57,6 +57,7 @@ export default function LeadsPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [detailLead, setDetailLead] = useState<LeadItem | null>(null);
   const [search, setSearch] = useState("");
+  const [bairros, setBairros] = useState<{id: string, nome: string}[]>([]);
 
   const form = useForm<LeadForm>({
     resolver: zodResolver(leadSchema),
@@ -93,9 +94,20 @@ export default function LeadsPage() {
     }
   };
 
+  const fetchBairros = async () => {
+    try {
+      const queryParams = user?.municipio_id ? `?municipio_id=${user.municipio_id}` : '';
+      const data = await api.get(`/bairros${queryParams}`);
+      setBairros(Array.isArray(data) ? data : []);
+    } catch (error) {
+      console.error(error);
+    }
+  };
+
   useEffect(() => {
     fetchLeads();
-  }, []);
+    fetchBairros();
+  }, [user?.municipio_id]);
 
   const onSubmit = async (data: LeadForm) => {
     try {
@@ -543,12 +555,15 @@ export default function LeadsPage() {
                     <span>Bairro / Região</span>
                     <span className="text-slate-400 font-normal text-xs">Opcional</span>
                   </label>
-                  <input 
+                  <select 
                     {...form.register("bairro")}
-                    type="text" 
-                    placeholder="Ex: Centro"
                     className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand/20 focus:border-brand transition-all text-slate-800 dark:text-white"
-                  />
+                  >
+                    <option value="">Selecione um bairro...</option>
+                    {bairros.map(b => (
+                      <option key={b.id} value={b.nome}>{b.nome}</option>
+                    ))}
+                  </select>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
