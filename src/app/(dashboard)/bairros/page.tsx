@@ -51,7 +51,7 @@ const bairroSchema = z.object({
   regiao: z.string().optional(),
   prioridade: z.enum(["Baixa", "Normal", "Alta"]),
   status: z.enum(["Não Iniciado", "Em Mapeamento", "Em Aproximação", "Ativo", "Consolidado", "Suspenso"]),
-  meta: z.coerce.number().min(0).optional(),
+  meta: z.number().min(0).optional(),
   responsavel_id: z.string().optional(),
 });
 
@@ -598,7 +598,7 @@ export default function BairrosPage() {
                     <span className="text-slate-400 font-normal text-xs">Opcional</span>
                   </label>
                   <input
-                    {...formBairro.register("meta")}
+                    {...formBairro.register("meta", { valueAsNumber: true })}
                     type="number"
                     min="0"
                     placeholder="Ex: 500"

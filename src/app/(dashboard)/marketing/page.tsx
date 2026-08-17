@@ -59,6 +59,18 @@ interface ContentItem extends ContentFormValues {
   status: "Planejamento" | "Em Produção" | "Aprovação" | "Publicado";
 }
 
+function safeDate(dateStr: string | null | undefined, formatStr: string): string {
+  if (!dateStr) return "Data não informada";
+  try {
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return "Data inválida";
+    return format(d, formatStr, { locale: ptBR });
+  } catch {
+    return "Data inválida";
+  }
+}
+
+
 export default function MarketingPage() {
   const [contents, setContents] = useState<ContentItem[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -311,12 +323,12 @@ export default function MarketingPage() {
                           <div className="mt-3 space-y-1">
                             <div className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
                               <CalendarBlank size={14} className="text-slate-400" />
-                              Criado: {format(new Date(item.creationDate), "dd/MM/yy")}
+                              Criado: {safeDate(item.creationDate, "dd/MM/yy")}
                             </div>
                             {item.deadlineDate && (
                               <div className="flex items-center gap-1.5 text-xs font-medium text-slate-700 dark:text-slate-200">
                                 <CheckCircle size={14} className="text-green-500" />
-                                Prazo: {format(new Date(item.deadlineDate), "dd/MM/yy")}
+                                Prazo: {safeDate(item.deadlineDate, "dd/MM/yy")}
                               </div>
                             )}
                           </div>
