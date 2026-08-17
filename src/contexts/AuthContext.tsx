@@ -8,6 +8,7 @@ interface User {
   nome: string;
   email: string;
   role: string;
+  municipio_id?: string;
 }
 
 interface AuthContextType {

@@ -20,7 +20,8 @@ import {
   Wrench,
   LockKey,
   Power,
-  PencilSimple
+  PencilSimple,
+  MapPin
 } from "@phosphor-icons/react";
 
 // --- Schemas ---
