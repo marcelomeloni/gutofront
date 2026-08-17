@@ -23,6 +23,12 @@ import {
   ArrowLeft
 } from "@phosphor-icons/react";
 
+interface Usuario {
+  id: string;
+  nome: string;
+  role: string;
+}
+
 // --- Schemas ---
 
 const tarefaSchema = z.object({
@@ -45,14 +51,15 @@ type Coluna = typeof COLUNAS[number];
 
 export default function TarefasPage() {
   const [tarefas, setTarefas] = useState<TarefaItem[]>([]);
+  const [usuarios, setUsuarios] = useState<Usuario[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
 
   const fetchTarefas = async () => {
     try {
       setIsLoading(true);
-      const response = await api.get('/tarefas');
-      setTarefas(response.data || []);
+      const data = await api.get('/tarefas');
+      setTarefas(Array.isArray(data) ? data : []);
     } catch (error) {
       console.error("Erro ao buscar tarefas:", error);
       toast.error("Erro ao carregar tarefas");
@@ -61,8 +68,18 @@ export default function TarefasPage() {
     }
   };
 
+  const fetchUsuarios = async () => {
+    try {
+      const data = await api.get('/usuarios');
+      setUsuarios(Array.isArray(data) ? data : []);
+    } catch (error) {
+      console.error("Erro ao buscar usuários:", error);
+    }
+  };
+
   useEffect(() => {
     fetchTarefas();
+    fetchUsuarios();
   }, []);
 
   const form = useForm<TarefaForm>({
@@ -75,8 +92,8 @@ export default function TarefasPage() {
 
   const onSubmit = async (data: TarefaForm) => {
     try {
-      const response = await api.post('/tarefas', data);
-      setTarefas([...tarefas, response.data]);
+      const newTarefa = await api.post('/tarefas', data);
+      setTarefas(prev => [newTarefa, ...prev]);
       toast.success("Tarefa criada com sucesso!");
       setIsModalOpen(false);
       form.reset();
@@ -310,13 +327,14 @@ export default function TarefasPage() {
                       {...form.register("responsavel")}
                       className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand/20 text-slate-800 dark:text-white text-sm"
                     >
-                      <option value="">Selecione...</option>
-                      <option value="Coordenador Geral">Coordenador Geral</option>
-                      <option value="Equipe de Marketing">Equipe de Marketing</option>
-                      <option value="Assessoria Jurídica">Assessoria Jurídica</option>
-                      <option value="Financeiro">Financeiro</option>
-                      <option value="Logística">Logística</option>
-                      <option value="Candidato">Candidato</option>
+                      <option value="">Selecione um responsável...</option>
+                      {usuarios.length > 0 ? (
+                        usuarios.map(u => (
+                          <option key={u.id} value={u.nome}>{u.nome} — {u.role}</option>
+                        ))
+                      ) : (
+                        <option disabled>Carregando usuários...</option>
+                      )}
                     </select>
                     {form.formState.errors.responsavel && <p className="text-red-500 text-xs">{form.formState.errors.responsavel.message}</p>}
                   </div>

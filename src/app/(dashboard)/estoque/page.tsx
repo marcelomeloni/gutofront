@@ -95,21 +95,9 @@ export default function EstoquePage() {
     fetchItems();
   }, []);
 
-  const [kits, setKits] = useState<KitItem[]>([
-    {
-      id: "k1",
-      nome: "Kit Caminhada Padrão",
-      descricao: "Material básico para caminhadas matinais",
-      materiais: [
-        { itemId: "i1", qtd: 500 }
-      ]
-    }
-  ]);
+  const [kits, setKits] = useState<KitItem[]>([]);
 
-  const [historico, setHistorico] = useState<Movimentacao[]>([
-    { id: "h1", itemId: "i1", nomeItem: "Santinhos Guto 45123", tipo: "Entrada", qtd: 20000, data: new Date().toISOString() },
-    { id: "h2", itemId: "i2", nomeItem: "Tripé de Apoio Grande", tipo: "Saída", qtd: 2, data: new Date(Date.now() - 86400000).toISOString() }
-  ]);
+  const [historico, setHistorico] = useState<Movimentacao[]>([]);
 
   const [modalItem, setModalItem] = useState(false);
   const [modalKit, setModalKit] = useState(false);
@@ -137,8 +125,7 @@ export default function EstoquePage() {
 
   const onAddItem = async (data: ItemForm) => {
     try {
-      const res = await api.post('/estoque', data);
-      const newItem = res.data;
+      const newItem = await api.post('/estoque', data);
       setItems(prev => [...prev, newItem]);
       
       // Add initial history

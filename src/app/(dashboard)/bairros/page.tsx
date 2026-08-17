@@ -1,6 +1,9 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import * as z from "zod";
 import { motion, AnimatePresence } from "framer-motion";
 import { api } from "@/lib/api";
 import {
@@ -20,7 +23,8 @@ import {
   WarningCircle,
   CheckCircle,
   Table,
-  SquaresFour
+  SquaresFour,
+  X
 } from "@phosphor-icons/react";
 import toast, { Toaster } from "react-hot-toast";
 
@@ -40,18 +44,65 @@ interface Bairro {
   lastAction: string;
 }
 
+// --- Schemas ---
+
+const bairroSchema = z.object({
+  nome: z.string().min(2, "Nome do bairro é obrigatório"),
+  regiao: z.string().optional(),
+  prioridade: z.enum(["Baixa", "Normal", "Alta"]),
+  status: z.enum(["Não Iniciado", "Em Mapeamento", "Em Aproximação", "Ativo", "Consolidado", "Suspenso"]),
+  meta: z.coerce.number().min(0).optional(),
+  responsavel_id: z.string().optional(),
+});
+
+type BairroForm = z.infer<typeof bairroSchema>;
+
+const municipioSchema = z.object({
+  nome: z.string().min(2, "Nome do município é obrigatório"),
+  regiao: z.string().optional(),
+});
+
+type MunicipioForm = z.infer<typeof municipioSchema>;
+
+// Helper to normalize API response to frontend interface
+function normalizeBairro(b: any): Bairro {
+  return {
+    id: b.id,
+    name: b.nome || b.name || "",
+    region: b.regiao || b.region || "",
+    priority: (b.prioridade || b.priority || "Normal") as Priority,
+    status: (b.status || "Não Iniciado") as BairroStatus,
+    contacts: b.contatos_base || b.contacts || 0,
+    leaders: b.lideres || b.leaders || 0,
+    goal: b.meta || b.goal || 0,
+    responsible: b.responsavel_id || b.responsible || "Não definido",
+    lastAction: b.ultima_acao || b.lastAction || "Sem registro",
+  };
+}
+
 export default function BairrosPage() {
   const [bairros, setBairros] = useState<Bairro[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [viewMode, setViewMode] = useState<'table' | 'cards'>('cards');
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [search, setSearch] = useState("");
+  const [modalBairro, setModalBairro] = useState(false);
+  const [modalMunicipio, setModalMunicipio] = useState(false);
+
+  const formBairro = useForm<BairroForm>({
+    resolver: zodResolver(bairroSchema),
+    defaultValues: { prioridade: "Normal", status: "Não Iniciado", meta: 0 },
+  });
+
+  const formMunicipio = useForm<MunicipioForm>({
+    resolver: zodResolver(municipioSchema),
+  });
 
   const stats = {
     total: bairros.length,
     notStarted: bairros.filter(b => b.status === "Não Iniciado").length,
     active: bairros.filter(b => b.status === "Ativo" || b.status === "Consolidado").length,
-    pendingReturn: 0, // Mock for Retornos Pendentes
+    pendingReturn: 0,
   };
 
   const getStatusColor = (status: BairroStatus) => {
@@ -78,7 +129,7 @@ export default function BairrosPage() {
     try {
       setIsLoading(true);
       const data = await api.get('/bairros');
-      setBairros(Array.isArray(data) ? data : []);
+      setBairros(Array.isArray(data) ? data.map(normalizeBairro) : []);
     } catch (error) {
       toast.error("Erro ao carregar bairros.");
     } finally {
@@ -97,6 +148,49 @@ export default function BairrosPage() {
       toast.success("Bairro removido com sucesso!");
     } catch (error) {
       toast.error("Erro ao remover bairro.");
+    }
+  };
+
+  const onAddBairro = async (data: BairroForm) => {
+    try {
+      const payload = {
+        nome: data.nome,
+        regiao: data.regiao || null,
+        prioridade: data.prioridade,
+        status: data.status,
+        meta: data.meta || 0,
+        contatos_base: 0,
+        lideres: 0,
+      };
+      const result = await api.post('/bairros', payload);
+      setBairros(prev => [normalizeBairro(result), ...prev]);
+      toast.success("Bairro cadastrado com sucesso!");
+      setModalBairro(false);
+      formBairro.reset();
+    } catch (error) {
+      toast.error("Erro ao cadastrar bairro.");
+    }
+  };
+
+  const onAddMunicipio = async (data: MunicipioForm) => {
+    try {
+      // Município is registered as a bairro with a special region marker
+      const payload = {
+        nome: data.nome,
+        regiao: data.regiao || "Município",
+        prioridade: "Normal",
+        status: "Não Iniciado",
+        meta: 0,
+        contatos_base: 0,
+        lideres: 0,
+      };
+      const result = await api.post('/bairros', payload);
+      setBairros(prev => [normalizeBairro(result), ...prev]);
+      toast.success("Município cadastrado com sucesso!");
+      setModalMunicipio(false);
+      formMunicipio.reset();
+    } catch (error) {
+      toast.error("Erro ao cadastrar município.");
     }
   };
 
@@ -161,7 +255,7 @@ export default function BairrosPage() {
           </div>
           <button 
             onClick={() => setIsFilterOpen(!isFilterOpen)}
-            className={`p-2 border rounded-lg transition-colors flex items-center justify-center shrink-0 ${isFilterOpen ? 'bg-blue-50 text-brand border-blue-200 dark:bg-blue-900/20 dark:border-blue-800/50' : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:bg-slate-800'}`}
+            className={`p-2 border rounded-lg transition-colors flex items-center justify-center shrink-0 ${isFilterOpen ? 'bg-blue-50 text-brand border-blue-200 dark:bg-blue-900/20 dark:border-blue-800/50' : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-50'}`}
           >
             <Funnel size={20} />
           </button>
@@ -186,11 +280,17 @@ export default function BairrosPage() {
           </div>
           
           <div className="flex gap-2">
-            <button className="hidden sm:flex items-center gap-2 bg-white dark:bg-slate-900 border border-slate-300 hover:bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-200 px-4 py-2 rounded-lg text-sm font-medium transition-colors shadow-sm">
+            <button 
+              onClick={() => setModalMunicipio(true)}
+              className="hidden sm:flex items-center gap-2 bg-white dark:bg-slate-900 border border-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 px-4 py-2 rounded-lg text-sm font-medium transition-colors shadow-sm"
+            >
               <Buildings size={18} />
               Novo Município
             </button>
-            <button className="flex items-center gap-2 bg-brand hover:bg-brand-hover text-black px-4 py-2 rounded-lg text-sm font-medium transition-colors shadow-sm">
+            <button 
+              onClick={() => setModalBairro(true)}
+              className="flex items-center gap-2 bg-brand hover:bg-brand-hover text-black px-4 py-2 rounded-lg text-sm font-medium transition-colors shadow-sm"
+            >
               <Plus size={18} />
               Novo Bairro
             </button>
@@ -208,23 +308,6 @@ export default function BairrosPage() {
             className="overflow-hidden"
           >
             <div className="bg-white dark:bg-slate-900 p-5 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4">
-              <div className="space-y-1.5">
-                <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Município</label>
-                <select className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm focus:outline-none focus:border-brand">
-                  <option>Todos os Municípios</option>
-                  <option>Limeira (SP)</option>
-                </select>
-              </div>
-              <div className="space-y-1.5">
-                <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Região</label>
-                <select className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm focus:outline-none focus:border-brand">
-                  <option>Todas as Regiões</option>
-                  <option>Centro</option>
-                  <option>Norte</option>
-                  <option>Sul</option>
-                  <option>Rural</option>
-                </select>
-              </div>
               <div className="space-y-1.5">
                 <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Status Operacional</label>
                 <select className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm focus:outline-none focus:border-brand">
@@ -260,11 +343,19 @@ export default function BairrosPage() {
 
       <div className="flex items-center gap-2 text-lg font-semibold text-slate-800 dark:text-white pb-2">
         <Buildings size={24} className="text-blue-500" />
-        Territórios: Limeira-SP
+        Territórios Mapeados
       </div>
 
       {/* Main Content View */}
-      {viewMode === 'cards' ? (
+      {isLoading ? (
+        <div className="py-20 text-center text-slate-500 dark:text-slate-400">Carregando bairros...</div>
+      ) : filteredBairros.length === 0 ? (
+        <div className="py-20 text-center flex flex-col items-center">
+          <MapPin size={48} weight="duotone" className="text-slate-300 mb-4" />
+          <p className="text-lg font-medium text-slate-600 dark:text-slate-300">Nenhum bairro encontrado.</p>
+          <p className="text-sm text-slate-400">Clique em "Novo Bairro" para começar o mapeamento.</p>
+        </div>
+      ) : viewMode === 'cards' ? (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
           <AnimatePresence>
             {filteredBairros.map(bairro => {
@@ -283,7 +374,7 @@ export default function BairrosPage() {
                       <div>
                         <h3 className="text-lg font-bold text-slate-800 dark:text-white leading-tight">{bairro.name}</h3>
                         <p className="text-sm text-slate-500 dark:text-slate-400 flex items-center gap-1 mt-1">
-                          <MapPin size={14} /> Região: {bairro.region}
+                          <MapPin size={14} /> Região: {bairro.region || "Não definida"}
                         </p>
                       </div>
                       <span className={`px-2.5 py-1 text-xs font-bold rounded-full border ${getStatusColor(bairro.status)}`}>
@@ -436,10 +527,143 @@ export default function BairrosPage() {
           </div>
         </div>
       )}
+
+      {/* ======================== MODALS ======================== */}
+      <AnimatePresence>
+
+        {/* Modal: Novo Bairro */}
+        {modalBairro && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setModalBairro(false)} className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
+            <motion.div initial={{ opacity: 0, scale: 0.95, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95, y: 20 }} className="relative bg-white dark:bg-slate-900 rounded-2xl shadow-xl w-full max-w-lg max-h-[95vh] overflow-y-auto flex flex-col">
+              
+              <div className="flex items-center justify-between p-6 border-b border-slate-100 dark:border-slate-800 sticky top-0 bg-white dark:bg-slate-900 z-10">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-brand/20 text-brand rounded-lg flex items-center justify-center">
+                    <MapPin size={20} weight="fill" />
+                  </div>
+                  <h2 className="text-xl font-bold text-slate-800 dark:text-white">Novo Bairro</h2>
+                </div>
+                <button onClick={() => setModalBairro(false)} className="text-slate-400 hover:bg-slate-100 rounded-full p-2"><X size={24} /></button>
+              </div>
+
+              <form onSubmit={formBairro.handleSubmit(onAddBairro)} className="p-6 space-y-5">
+                <div className="space-y-2">
+                  <label className="text-sm font-bold text-slate-700 dark:text-slate-200">Nome do Bairro*</label>
+                  <input
+                    {...formBairro.register("nome")}
+                    placeholder="Ex: Centro, Vila Nova..."
+                    className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand/20 focus:border-brand text-slate-800 dark:text-white"
+                  />
+                  {formBairro.formState.errors.nome && <p className="text-red-500 text-xs">{formBairro.formState.errors.nome.message}</p>}
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-sm font-bold text-slate-700 dark:text-slate-200 flex justify-between">
+                    <span>Região / Zona</span>
+                    <span className="text-slate-400 font-normal text-xs">Opcional</span>
+                  </label>
+                  <input
+                    {...formBairro.register("regiao")}
+                    placeholder="Ex: Zona Norte, Centro-Oeste..."
+                    className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand/20 focus:border-brand text-slate-800 dark:text-white"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <label className="text-sm font-bold text-slate-700 dark:text-slate-200">Prioridade*</label>
+                    <select {...formBairro.register("prioridade")} className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand/20 text-slate-800 dark:text-white">
+                      <option value="Baixa">Baixa</option>
+                      <option value="Normal">Normal</option>
+                      <option value="Alta">Alta</option>
+                    </select>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-bold text-slate-700 dark:text-slate-200">Status*</label>
+                    <select {...formBairro.register("status")} className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand/20 text-slate-800 dark:text-white">
+                      <option value="Não Iniciado">Não Iniciado</option>
+                      <option value="Em Mapeamento">Em Mapeamento</option>
+                      <option value="Em Aproximação">Em Aproximação</option>
+                      <option value="Ativo">Ativo</option>
+                      <option value="Consolidado">Consolidado</option>
+                      <option value="Suspenso">Suspenso</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-sm font-bold text-slate-700 dark:text-slate-200 flex justify-between">
+                    <span>Meta de Contatos</span>
+                    <span className="text-slate-400 font-normal text-xs">Opcional</span>
+                  </label>
+                  <input
+                    {...formBairro.register("meta")}
+                    type="number"
+                    min="0"
+                    placeholder="Ex: 500"
+                    className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand/20 focus:border-brand text-slate-800 dark:text-white"
+                  />
+                </div>
+
+                <div className="pt-4 mt-2 border-t border-slate-100 dark:border-slate-800 flex justify-end gap-3 sticky bottom-0 bg-white dark:bg-slate-900">
+                  <button type="button" onClick={() => setModalBairro(false)} className="px-5 py-2.5 rounded-lg font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-100 transition-colors">Cancelar</button>
+                  <button type="submit" className="px-6 py-2.5 rounded-lg font-medium text-black bg-brand hover:bg-brand-hover transition-colors shadow-sm">Salvar Bairro</button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+
+        {/* Modal: Novo Município */}
+        {modalMunicipio && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setModalMunicipio(false)} className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
+            <motion.div initial={{ opacity: 0, scale: 0.95, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95, y: 20 }} className="relative bg-white dark:bg-slate-900 rounded-2xl shadow-xl w-full max-w-md max-h-[90vh] overflow-y-auto flex flex-col">
+              
+              <div className="flex items-center justify-between p-6 border-b border-slate-100 dark:border-slate-800 sticky top-0 bg-white dark:bg-slate-900 z-10">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-blue-50 text-blue-600 rounded-lg flex items-center justify-center">
+                    <Buildings size={20} weight="fill" />
+                  </div>
+                  <h2 className="text-xl font-bold text-slate-800 dark:text-white">Novo Município</h2>
+                </div>
+                <button onClick={() => setModalMunicipio(false)} className="text-slate-400 hover:bg-slate-100 rounded-full p-2"><X size={24} /></button>
+              </div>
+
+              <form onSubmit={formMunicipio.handleSubmit(onAddMunicipio)} className="p-6 space-y-5">
+                <div className="space-y-2">
+                  <label className="text-sm font-bold text-slate-700 dark:text-slate-200">Nome do Município*</label>
+                  <input
+                    {...formMunicipio.register("nome")}
+                    placeholder="Ex: Limeira, Americana..."
+                    className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand/20 focus:border-brand text-slate-800 dark:text-white"
+                  />
+                  {formMunicipio.formState.errors.nome && <p className="text-red-500 text-xs">{formMunicipio.formState.errors.nome.message}</p>}
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-sm font-bold text-slate-700 dark:text-slate-200 flex justify-between">
+                    <span>Estado / UF</span>
+                    <span className="text-slate-400 font-normal text-xs">Opcional</span>
+                  </label>
+                  <input
+                    {...formMunicipio.register("regiao")}
+                    placeholder="Ex: SP, MG..."
+                    className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand/20 focus:border-brand text-slate-800 dark:text-white"
+                  />
+                </div>
+
+                <div className="pt-4 mt-2 border-t border-slate-100 dark:border-slate-800 flex justify-end gap-3 sticky bottom-0 bg-white dark:bg-slate-900">
+                  <button type="button" onClick={() => setModalMunicipio(false)} className="px-5 py-2.5 rounded-lg font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-100 transition-colors">Cancelar</button>
+                  <button type="submit" className="px-6 py-2.5 rounded-lg font-medium text-white bg-slate-800 hover:bg-slate-900 transition-colors shadow-sm">Salvar Município</button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+
+      </AnimatePresence>
     </div>
   );
 }
-
-
-
-
