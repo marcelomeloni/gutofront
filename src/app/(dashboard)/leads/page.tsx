@@ -66,7 +66,7 @@ export default function LeadsPage() {
     }
   });
 
-  if (user && user.role !== "admin" && user.role !== "operacional") {
+  if (user && !["admin", "operacional", "colaborador"].includes(user.role)) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[60vh] text-center px-4">
         <div className="w-20 h-20 bg-red-100 dark:bg-red-900/30 text-red-500 rounded-full flex items-center justify-center mb-6">
@@ -74,7 +74,7 @@ export default function LeadsPage() {
         </div>
         <h1 className="text-3xl font-black text-slate-800 dark:text-white mb-3">Acesso Negado</h1>
         <p className="text-slate-500 dark:text-slate-400 max-w-md">
-          Sua função atual (<span className="font-bold text-slate-700 dark:text-slate-300">{user.role}</span>) não permite acessar a base de Leads. O acesso é restrito apenas para as funções Admin e Operacional.
+          Sua função atual (<span className="font-bold text-slate-700 dark:text-slate-300">{user.role}</span>) não permite acessar a base de Leads. O acesso é restrito apenas para Admin, Operacional e Colaboradores.
         </p>
       </div>
     );
@@ -83,7 +83,8 @@ export default function LeadsPage() {
   const fetchLeads = async () => {
     try {
       setIsLoading(true);
-      const data = await api.get('/leads');
+      const queryParams = user?.role !== 'admin' ? `?captado_por=${user?.id}` : '';
+      const data = await api.get(`/leads${queryParams}`);
       setLeads(data || []);
     } catch (error) {
       toast.error("Erro ao carregar contatos.");

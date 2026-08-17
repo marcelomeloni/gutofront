@@ -75,7 +75,7 @@ function safeDate(dateStr: string | null | undefined, formatStr: string): string
 function normalizeEntrevistaFrontend(e: any): EntrevistaItem {
   return {
     id: e.id,
-    veiculo: e.veiculo || e.veiculo_id || "Não informado",
+    veiculo: e.veiculo || e.imprensa_veiculos?.nome || e.veiculo_id || "Não informado",
     pauta: e.pauta || "",
     data: e.data || e.data_entrevista || null,
     horario: e.horario || "",
